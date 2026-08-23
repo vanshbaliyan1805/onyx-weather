@@ -1,0 +1,36 @@
+[
+  {
+    "id": "112233445566",
+    "uri": "https://mastodon.social/@puneupdates/112233445566",
+    "url": "https://mastodon.social/@puneupdates/112233445566",
+    "account": {"acct": "puneupdates@mastodon.social"},
+    "content": "<p>Waterlogging reported near Pune station after two hours of continuous rain. Traffic badly affected. #rain #Pune #IMD</p>",
+    "created_at": "2026-08-22T11:00:00Z",
+    "language": "en",
+    "media_attachments": [
+      {"url": "https://example.com/media/pune_waterlogging.jpg", "type": "image"}
+    ]
+  },
+  {
+    "id": "112233445599",
+    "uri": "https://mstdn.social/@bengaluruwx/112233445599",
+    "url": "https://mstdn.social/@bengaluruwx/112233445599",
+    "account": {"acct": "bengaluruwx@mstdn.social"},
+    "content": "<p>Strong gusty winds uprooted trees near MG Road, Bangalore this afternoon #strongwinds #Bangalore</p>",
+    "created_at": "2026-08-21T13:30:00Z",
+    "language": "en",
+    "media_attachments": []
+  },
+  {
+    "id": "112233445611",
+    "uri": "https://mastodon.social/@guwahatinews/112233445611",
+    "url": "https://mastodon.social/@guwahatinews/112233445611",
+    "account": {"acct": "guwahatinews@mastodon.social"},
+    "content": "<p>Brahmaputra flood situation worsens near Guwahati, several low-lying areas submerged #flood #Assam #IMD</p>",
+    "created_at": "2026-08-20T08:10:00Z",
+    "language": "en",
+    "media_attachments": [
+      {"url": "https://example.com/media/guwahati_flood.mp4", "type": "video"}
+    ]
+  }
+]

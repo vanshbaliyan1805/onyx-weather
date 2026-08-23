@@ -1,0 +1,46 @@
+[
+  {
+    "uri": "at://did:plc:mumbaiuser1/app.bsky.feed.post/3l1abc",
+    "cid": "bafyabc123",
+    "author": {"handle": "mumbaikar.bsky.social"},
+    "record": {
+      "text": "Heavy rain lashing Andheri right now, water entering the subway underpass again #Mumbairains #IMD",
+      "createdAt": "2026-08-22T09:15:00Z",
+      "langs": ["en"]
+    },
+    "embed": {"images": [{"fullsize": "https://example.com/media/andheri_flood1.jpg"}]}
+  },
+  {
+    "uri": "at://did:plc:keralauser2/app.bsky.feed.post/3l1def",
+    "cid": "bafydef456",
+    "author": {"handle": "kochiweatherwatch.bsky.social"},
+    "record": {
+      "text": "IMD has issued a red alert for Kochi and Ernakulam district for the next 48 hours due to heavy rainfall #IMD #Kerala #rain",
+      "createdAt": "2026-08-22T06:40:00Z",
+      "langs": ["en"]
+    },
+    "embed": {}
+  },
+  {
+    "uri": "at://did:plc:delhiuser3/app.bsky.feed.post/3l1ghi",
+    "cid": "bafyghi789",
+    "author": {"handle": "delhiskies.bsky.social"},
+    "record": {
+      "text": "Dust storm warning issued for Delhi NCR this evening, visibility dropping fast #duststorm #Delhi",
+      "createdAt": "2026-08-21T14:05:00Z",
+      "langs": ["en"]
+    },
+    "embed": {}
+  },
+  {
+    "uri": "at://did:plc:chennaiuser4/app.bsky.feed.post/3l1jkl",
+    "cid": "bafyjkl012",
+    "author": {"handle": "chennairains.bsky.social"},
+    "record": {
+      "text": "Thunderstorm with lightning over Chennai right now, please stay indoors #thunderstorm #Chennai #weatheralert",
+      "createdAt": "2026-08-20T18:20:00Z",
+      "langs": ["en"]
+    },
+    "embed": {"images": [{"fullsize": "https://example.com/media/chennai_lightning.jpg"}]}
+  }
+]

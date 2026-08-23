@@ -1,0 +1,32 @@
+[
+  {
+    "id": "c1a2b3c4-0001",
+    "text": "Knee-deep water on SV Road near Malad, auto rickshaws stuck, been like this for an hour",
+    "city": "Mumbai",
+    "latitude": 19.1868,
+    "longitude": 72.8486,
+    "media_urls": ["https://example.com/media/malad_waterlogging.jpg"],
+    "reporter_name": "citizen_2201",
+    "submitted_at": "2026-08-22T10:05:00Z"
+  },
+  {
+    "id": "c1a2b3c4-0002",
+    "text": "Hailstorm just hit our locality in Shimla, roof damage reported in a few houses nearby",
+    "city": "Shimla",
+    "latitude": 31.1048,
+    "longitude": 77.1734,
+    "media_urls": [],
+    "reporter_name": "citizen_4471",
+    "submitted_at": "2026-08-21T16:40:00Z"
+  },
+  {
+    "id": "c1a2b3c4-0003",
+    "text": "Extremely hot and humid in Nagpur today, feels like 48 degrees, several people fainted at the bus stand",
+    "city": "Nagpur",
+    "latitude": 21.1458,
+    "longitude": 79.0882,
+    "media_urls": [],
+    "reporter_name": "citizen_1090",
+    "submitted_at": "2026-08-20T13:15:00Z"
+  }
+]

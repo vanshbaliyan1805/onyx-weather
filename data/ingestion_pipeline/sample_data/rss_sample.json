@@ -1,0 +1,23 @@
+[
+  {
+    "title": "IMD predicts heavy rainfall for coastal Karnataka over next 72 hours",
+    "summary": "The India Meteorological Department has issued an orange alert for Mangaluru and Udupi districts.",
+    "link": "https://example-news.com/imd-heavy-rainfall-coastal-karnataka",
+    "published": "2026-08-22T05:00:00Z",
+    "feed": "TOI - City"
+  },
+  {
+    "title": "Fog disrupts flight operations at Lucknow airport",
+    "summary": "Dense fog reduced visibility to under 200 metres early Friday, delaying over a dozen flights.",
+    "link": "https://example-news.com/fog-lucknow-airport-delays",
+    "published": "2026-08-21T02:30:00Z",
+    "feed": "Hindustan Times - India News"
+  },
+  {
+    "title": "Cyclone watch: Low pressure area forms over Bay of Bengal",
+    "summary": "IMD says the system could intensify into a cyclonic storm and affect the Odisha coast by early next week.",
+    "link": "https://example-news.com/cyclone-watch-bay-of-bengal",
+    "published": "2026-08-20T12:15:00Z",
+    "feed": "NDTV - India News"
+  }
+]
