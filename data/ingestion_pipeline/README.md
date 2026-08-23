@@ -1,132 +1,249 @@
 # Onyx — Weather Data Ingestion Pipeline
 
-Fetches real-time, weather-related posts about India (tagged `#IMD`, `#rain`,
-etc.) from public sources, cleans/normalizes them, and stores them in a
-single SQLite database ready to hand off to the ML teammate for
-fake-detection, dedup, and final event classification.
-
-## What it does
+Collects real-time weather-related information about India from multiple public
+sources, cleans and normalizes it, and stores everything in one SQLite database
+ready for downstream ML (fake-report detection, dedup, event classification).
 
 ```
-connectors/  →  cleaning.py  →  db.py (weather_reports.db)  →  export (CSV/JSON)
-(fetch raw)     (normalize)      (single source of truth)      (handoff)
+connectors/  →  cleaning.py  →  db.py                →  export (CSV/JSON)
+(fetch raw)     (normalize)     (weather_reports.db)     (handoff to ML)
 ```
 
-Sources wired up:
+---
 
-| Source    | What it pulls                                   | Auth needed? |
-|-----------|--------------------------------------------------|--------------|
-| Bluesky   | Public posts matching weather hashtags           | No           |
-| Mastodon  | Public hashtag timelines on major instances      | No           |
-| Reddit    | Weather-keyword posts from India-relevant subs   | Yes (free)   |
-| RSS/news  | Weather-relevant articles from Indian news feeds | No           |
-| Citizen   | Reports submitted through a local intake queue   | No           |
+## Quick start (Windows / PowerShell)
 
-**Twitter/X was deliberately left out.** As of 2026 its API no longer has a
-usable free read/search tier (paid tiers start around $200/month), and
-scraping it violates its terms of service — not something to build for a
-hackathon submission. If your team gets paid API access later, add a
-`connectors/twitter_connector.py` following the same pattern as the others.
-
-## Setup
-
-```bash
+```powershell
 cd weather_pipeline
-pip install -r requirements.txt
-cp .env.example .env   # then fill in Reddit credentials (see below)
-python main.py init-db
+
+# 1. Create and activate a virtual environment
+python -m venv .venv
+.venv\Scripts\Activate.ps1
 ```
 
-Reddit is the only source that needs a key, and it's free:
-1. Go to https://www.reddit.com/prefs/apps → "create another app..."
-2. Type: **script**. Redirect URI: `http://localhost:8080` (unused, but required).
-3. Copy the client ID (under the app name) and secret into `.env`.
+If PowerShell blocks that with a red "running scripts is disabled" error, run
+this once, then retry the activate line:
 
-## Running it
+```powershell
+Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
+```
 
-```bash
-# No API keys yet, or just want to see it work end-to-end:
-python main.py fetch --demo
+```powershell
+# 2. Install dependencies
+pip install -r requirements.txt
 
-# Live run, every source:
+# 3. Create the database
+python main.py init-db
+
+# 4. Collect data
 python main.py fetch
 
-# Live run, just one source:
-python main.py fetch --source bluesky
-python main.py fetch --source reddit,mastodon
-
-# Check what's in the DB:
+# 5. See what you got
 python main.py stats
+```
 
-# Export for your ML teammate:
+On macOS/Linux the only difference is `source .venv/bin/activate` in step 1.
+
+**No API keys are required.** Every source that runs by default is fully open.
+
+---
+
+## Sources
+
+| Source | What it pulls | Status |
+|---|---|---|
+| **openmeteo** | Live measured conditions for ~51 Indian cities | ✅ Always works |
+| **mastodon** | Public posts on weather hashtags across instances | ✅ Working |
+| **rss** | Weather articles from 28 Indian news/weather feeds | ✅ Working |
+| **citizen** | Reports submitted through the intake queue | ✅ Working (empty until submissions arrive) |
+| bluesky | Public hashtag search | ⚠️ Disabled — upstream bug |
+| reddit | Weather posts from India subreddits | ⚠️ Disabled — access closed |
+
+### Why two sources are disabled
+
+Both connectors are **complete and functional**. They're excluded from the
+default run because of platform-side access restrictions, not code problems:
+
+- **Bluesky** — its public `searchPosts` endpoint returns `403 Forbidden` for
+  every unauthenticated query, despite their own docs saying it shouldn't.
+  Confirmed upstream bug: https://github.com/bluesky-social/bsky-docs/issues/332
+  Re-enable by adding `"bluesky"` to `DEFAULT_SOURCES` in `pipeline.py` if it
+  gets fixed.
+
+- **Reddit** — Reddit has closed self-serve app creation for the legacy Data
+  API. New apps now require a manually reviewed request gated on moderation use
+  cases, which an analytics pipeline doesn't qualify for. The connector works
+  the moment credentials exist; they just can't be provisioned on demand.
+
+Run either explicitly with `--source bluesky` / `--source reddit` to test.
+
+---
+
+## Commands
+
+```powershell
+python main.py init-db                  # create the database
+python main.py fetch                    # collect from all default sources
+python main.py fetch --source rss       # collect from one (or "rss,mastodon")
+python main.py stats                    # row counts by source
+python main.py purge-demo --dry-run     # list any sample rows in the DB
+python main.py purge-demo               # remove them
 python main.py export --format csv --out exports/weather_reports.csv
 python main.py export --format json --out exports/weather_reports.json
 ```
 
-Re-running `fetch` is safe — records are deduplicated by `(source,
-source_post_id)`, so nothing gets inserted twice from the same post. For
-scheduled/repeated collection (real "real-time"), run `python main.py fetch`
-on a cron job / scheduled task every few minutes.
+Re-running `fetch` is safe and cheap — rows are deduplicated by
+`(source, source_post_id)`, so repeat runs only add genuinely new records.
 
-## The output format
+### About `--demo`
 
-Everything lands in **one flat table**, `weather_reports`, in
-`weather_reports.db` (plain SQLite — open it with DB Browser for SQLite,
-`sqlite3` CLI, pandas' `read_sql`, or hand the file straight to your
-teammate).
+`fetch --demo` reads the fixtures in `sample_data/` instead of calling live
+APIs. It exists for developing without network access. **Don't run it against a
+database holding real data** — it writes fake records that look real. If you
+already did, `purge-demo` removes them safely (it matches exact IDs from the
+fixture files, so it can only ever delete known-fake rows).
 
-| Column                | Meaning                                                                 |
-|------------------------|--------------------------------------------------------------------------|
-| `id`                   | internal row ID                                                          |
-| `source`               | `bluesky` / `mastodon` / `reddit` / `rss` / `citizen`                    |
-| `source_post_id`       | the post's ID on its native platform                                     |
-| `source_url`           | permalink back to the original post                                      |
-| `author`               | username/handle (as public as the platform exposes)                      |
-| `text_raw`             | original text, untouched                                                 |
-| `text_clean`           | URLs/@mentions stripped, whitespace normalized                           |
-| `hashtags`             | comma-separated hashtags found in the text                               |
-| `posted_at`            | ISO-8601 timestamp the post was made                                     |
-| `ingested_at`          | ISO-8601 timestamp we pulled it in                                       |
-| `city` / `state`       | best-guess Indian city/state, matched against a built-in list            |
-| `latitude` / `longitude` | best-guess coordinates for that city                                   |
-| `location_raw`         | the raw text the location guess came from                                |
-| `media_urls`           | comma-separated photo/video URLs                                         |
-| `media_type`           | `photo` / `video` / `none`                                               |
-| `event_category_guess` | rule-based guess: `rainfall`, `flooding`, `thunderstorm`, `cyclone`, `heatwave`, `dust_storm`, `fog`, `strong_wind`, `other` |
-| `language`             | language code if the source provides one                                 |
-| `dedup_hash`           | fingerprint of normalized text+city+date, for cheap duplicate detection  |
-| `is_likely_duplicate`  | 1 if this row's `dedup_hash` matched an existing row already in the DB   |
-| `verification_status`  | `unverified` by default — the ML pipeline / admin panel updates this later |
-| `raw_json`             | the full original API payload, so nothing is ever permanently lost       |
+---
 
-**Important:** `event_category_guess` and `is_likely_duplicate` are cheap,
-rule-based first passes (keyword matching / exact-text hashing) — they
-exist so the dashboard has *something* to show immediately and so your ML
-teammate isn't starting from zero. They are not a substitute for the real
-ML classification, fuzzy dedup, and fake-report detection your teammate is
-building; think of these columns as "pipeline's best guess, ML has final
-say," and `verification_status` is exactly the column that guess should be
-overwritten into once ML has run.
+## Output format
+
+Everything lands in **one flat table**, `weather_reports`, inside
+`weather_reports.db` — a single SQLite file. No server required. Open it with
+DB Browser for SQLite, the `sqlite3` CLI, `pandas.read_sql`, or VS Code's SQLite
+extension.
+
+Every source produces the same 23 columns, so one loader handles all of them:
+
+| Column | Meaning |
+|---|---|
+| `id` | internal row ID |
+| `source` | `openmeteo` / `mastodon` / `rss` / `citizen` / `bluesky` / `reddit` |
+| `source_post_id` | the record's native ID on its platform |
+| `source_url` | permalink back to the original |
+| `author` | username/handle/outlet |
+| `text_raw` | original text, untouched |
+| `text_clean` | URLs and @mentions stripped, whitespace normalized |
+| `hashtags` | comma-separated hashtags found in the text |
+| `posted_at` | ISO-8601 timestamp the record was published/observed |
+| `ingested_at` | ISO-8601 timestamp this pipeline collected it |
+| `city` / `state` | best-guess Indian location, matched against a built-in list |
+| `latitude` / `longitude` | coordinates for that location |
+| `location_raw` | the text the location guess was derived from |
+| `media_urls` | comma-separated photo/video URLs |
+| `media_type` | `photo` / `video` / `image` / `none` |
+| `event_category_guess` | `rainfall`, `flooding`, `thunderstorm`, `cyclone`, `heatwave`, `dust_storm`, `fog`, `strong_wind`, `other` |
+| `language` | language code where the source provides one |
+| `dedup_hash` | fingerprint of normalized text + city + date |
+| `is_likely_duplicate` | `1` if this row's `dedup_hash` matched an existing row |
+| `verification_status` | `unverified` / `verified` / `fake` |
+| `raw_json` | the full original payload, so nothing is ever lost |
+
+### Example rows
+
+A **measured** record (Open-Meteo):
+
+```
+source                 openmeteo
+source_post_id         chennai-2026-08-23T15:30
+author                 Open-Meteo (numerical weather model)
+text_clean             Observed conditions in Chennai, Tamil Nadu: thunderstorm.
+                       Temperature 30.2 C, humidity 74%, precipitation 2.1 mm,
+                       wind 22.8 km/h (gusts 38.4 km/h).
+city / state           Chennai / Tamil Nadu
+latitude / longitude   13.0827 / 80.2707
+event_category_guess   thunderstorm
+verification_status    verified
+raw_json               {"measured": {"temperature_2m": 30.2, ...}}
+```
+
+A **claimed** record (social post):
+
+```
+source                 mastodon
+source_url             https://mastodon.social/@puneupdates/112233445566
+author                 puneupdates@mastodon.social
+text_clean             Waterlogging reported near Pune station after two hours
+                       of continuous rain. Traffic badly affected. #rain #Pune #IMD
+hashtags               imd,pune,rain
+city / state           Pune / Maharashtra
+media_urls             https://example.com/media/pune_waterlogging.jpg
+event_category_guess   flooding
+verification_status    unverified
+```
+
+---
+
+## Notes for the ML side
+
+**`event_category_guess` and `is_likely_duplicate` are cheap first passes,
+not answers.** Category comes from keyword matching (except Open-Meteo rows,
+where it's derived from measured values), and the duplicate flag is an exact
+hash of normalized text. They exist so the dashboard has something to show
+immediately and so ML isn't starting from zero. Fuzzy/semantic dedup and real
+classification are still yours to build.
+
+**`verification_status` is the column to write back into.** Everything defaults
+to `unverified`. The one exception is `openmeteo`, which self-marks `verified`
+because those rows are measurements, not claims.
+
+**Open-Meteo rows are ground truth for fake detection.** This is the useful
+part: join a social report's `(city, posted_at)` against the `openmeteo` row for
+the same city and time window. A post claiming "streets flooded in Jaipur" when
+measured precipitation there is `0.0 mm` is a strong misinformation signal.
+That turns verification from guesswork into a table join. The measured values
+live in `raw_json` under `measured`.
+
+**`raw_json` holds the untouched original payload** for every row, so if
+normalization dropped a field you need, it's still there.
+
+---
+
+## Is it real-time?
+
+Not on its own — it's **polling, not streaming**. Each `fetch` is a snapshot.
+The data is fresh (Open-Meteo readings are at most ~15 minutes old), but the
+database only changes when the command runs.
+
+Everything needed for continuous collection is already in place: dedup makes
+re-running safe and cheap, and `ingested_at` timestamps every row. To make it
+genuinely continuous, schedule `python main.py fetch` every 10–15 minutes via
+Windows Task Scheduler (or `cron` on macOS/Linux) and it will accumulate
+without supervision.
+
+---
 
 ## Extending it
 
-- **New hashtags/keywords:** edit `WEATHER_HASHTAGS` / `WEATHER_KEYWORDS` in `config.py`.
-- **New cities:** add to `INDIAN_CITIES` in `config.py` (city → state, lat, lon).
-- **New source:** add a `connectors/<name>_connector.py` with a `fetch(demo=False)`
-  function returning the raw-record shape documented in `connectors/__init__.py`,
-  then register it in `pipeline.py`'s `CONNECTORS` dict.
-- **Citizen report form:** `connectors/citizen_connector.submit_citizen_report()`
-  is the function a Flask/FastAPI form endpoint should call — it writes into the
-  same queue file this pipeline reads from.
-- **Postgres instead of SQLite:** see the note at the bottom of `db.py` — the
-  schema was kept intentionally flat/boring so the migration is small.
+- **New hashtags/keywords** → `WEATHER_HASHTAGS` / `WEATHER_KEYWORDS` in `config.py`
+- **New cities** → `INDIAN_CITIES` in `config.py` (city → state, lat, lon).
+  Open-Meteo automatically picks up anything added here.
+- **New RSS feeds** → `RSS_FEEDS` in `config.py`. Dead feeds log a warning and
+  are skipped, so a broad list is safe.
+- **New source** → add `connectors/<name>_connector.py` exposing
+  `fetch(demo=False)` that returns the raw-record shape documented in
+  `connectors/__init__.py`, then register it in `pipeline.py`'s `CONNECTORS`
+  and add it to `DEFAULT_SOURCES`.
+- **Citizen report form** → `connectors/citizen_connector.submit_citizen_report()`
+  is what a Flask/FastAPI endpoint should call; it writes to the queue this
+  pipeline reads.
+- **Postgres instead of SQLite** → see the note at the bottom of `db.py`. The
+  schema was kept deliberately flat so the migration is small.
 
-## A note on this repo's testing
+---
 
-Live network calls to social platforms weren't reachable from the sandbox
-this was built in (outbound access there is locked to package registries
-only), so the pipeline was verified end-to-end using `--demo` mode with the
-bundled sample fixtures in `sample_data/`. The live code paths (`_search_live`,
-`_fetch_tag_live`, the PRAW calls, `feedparser.parse`) are standard,
-documented calls against each platform's public API — but run a live
-`fetch` yourself early and watch the console output, since APIs do change.
+## Troubleshooting
+
+**`can't open file 'main.py'`** — you're in the wrong folder. `cd weather_pipeline` first.
+
+**`ModuleNotFoundError`** — the virtual environment isn't active. Your prompt
+should start with `(.venv)`.
+
+**`running scripts is disabled on this system`** — see the
+`Set-ExecutionPolicy` line in Quick start.
+
+**`module has no attribute 'fetch'`** — a connector file is truncated or empty.
+Check its length; every connector should be well over 100 lines.
+
+**A source returns `fetched=0`** — usually genuine (nothing new matched), not a
+bug. `openmeteo` returning 0 is the exception and means the API call failed —
+check the console for the error above it.
