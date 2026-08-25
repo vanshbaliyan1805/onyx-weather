@@ -12,7 +12,7 @@ Columns (the "simple format" mentioned to the user) - also documented in
 README.md:
 
     id                   INTEGER  internal auto-increment primary key
-    source               TEXT     e.g. 'bluesky', 'mastodon', 'reddit', 'rss', 'citizen'
+    source               TEXT     e.g. 'openmeteo', 'mastodon', 'rss', 'bluesky', 'citizen'
     source_post_id       TEXT     ID of the post on its native platform
     source_url           TEXT     permalink back to the original post
     author               TEXT     username/handle (as public as the platform exposes)

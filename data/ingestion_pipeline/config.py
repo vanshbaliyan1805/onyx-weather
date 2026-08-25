@@ -2,23 +2,22 @@
 config.py
 ---------
 Central configuration for the Onyx weather-data ingestion pipeline.
- 
+
 Nothing in here should require you to touch other files. If you want to
-track a new hashtag, add a new city, or point Reddit at a new subreddit,
-do it here.
- 
+track a new hashtag, add a new city, or add an RSS feed, do it here.
+
 API keys / secrets are read from environment variables (or a local .env
 file if you use python-dotenv) - never hardcode secrets in this file.
 """
- 
+
 import os
- 
+
 try:
     from dotenv import load_dotenv
     load_dotenv()  # reads a local .env file, if present, into os.environ
 except ImportError:
     pass  # python-dotenv not installed - fine, just export env vars manually
- 
+
 # ---------------------------------------------------------------------------
 # Paths
 # ---------------------------------------------------------------------------
@@ -26,7 +25,7 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(BASE_DIR, "weather_reports.db")
 EXPORT_DIR = os.path.join(BASE_DIR, "exports")
 SAMPLE_DATA_DIR = os.path.join(BASE_DIR, "sample_data")
- 
+
 # ---------------------------------------------------------------------------
 # What we search for
 # ---------------------------------------------------------------------------
@@ -39,15 +38,15 @@ WEATHER_HASHTAGS = [
     "heatwaves", "thunderstorm", "cyclone", "duststorm", "fog", "hailstorm",
     "waterlogging", "weatheralert", "IMDWeather", "rainfall",
 ]
- 
+
 # Same list, but as plain keywords (no leading #) for platforms/feeds where
-# hashtag search isn't available (e.g. RSS, Reddit full-text search).
+# hashtag search isn't available (e.g. RSS full-text matching).
 WEATHER_KEYWORDS = [w.lower() for w in WEATHER_HASHTAGS] + [
     "downpour", "waterlogged", "landslide", "hailstorm", "dust storm",
     "heat wave", "strong winds", "gusty winds", "orange alert", "red alert",
     "yellow alert", "imd alert",
 ]
- 
+
 # ---------------------------------------------------------------------------
 # Event category keyword map (lightweight, rule-based pre-tagging only -
 # the ML teammate owns the real classifier; this just saves them a first
@@ -66,27 +65,32 @@ EVENT_CATEGORY_KEYWORDS = [
     ("rainfall", ["rain", "rains", "raining", "rainfall", "downpour", "monsoon", "drizzle"]),
 ]
 DEFAULT_EVENT_CATEGORY = "other"
- 
-# ---------------------------------------------------------------------------
-# Reddit
-# ---------------------------------------------------------------------------
-REDDIT_CLIENT_ID = os.environ.get("REDDIT_CLIENT_ID", "")
-REDDIT_CLIENT_SECRET = os.environ.get("REDDIT_CLIENT_SECRET", "")
-REDDIT_USER_AGENT = os.environ.get("REDDIT_USER_AGENT", "onyx-weather-pipeline/0.1 by hackathon-team")
- 
-REDDIT_SUBREDDITS = [
-    "india", "IndiaSpeaks", "mumbai", "delhi", "bangalore", "chennai",
-    "Kolkata", "pune", "Hyderabad", "Kerala", "indianweather", "IndiaWeather",
-]
-REDDIT_SEARCH_LIMIT = 50  # posts fetched per subreddit per run
- 
+
 # ---------------------------------------------------------------------------
 # Bluesky (AT Protocol) - public search endpoint, no API key required for
 # read-only public post search.
 # ---------------------------------------------------------------------------
+# Unauthenticated endpoint. Currently returns 403 for every query - a known
+# upstream bug: https://github.com/bluesky-social/bsky-docs/issues/332
+# Kept as a fallback in case Bluesky fixes it.
 BLUESKY_PUBLIC_ENDPOINT = "https://public.api.bsky.app/xrpc/app.bsky.feed.searchPosts"
+
+# Authenticated path - this is what actually works.
+#
+# Bluesky routes app.bsky.* calls through the user's PDS, so we authenticate
+# against bsky.social and then issue searches against the same host with a
+# Bearer token, rather than hitting the public AppView directly.
+#
+# BLUESKY_APP_PASSWORD must be an APP PASSWORD, not your account password.
+# Generate one at Settings -> Privacy and Security -> App Passwords. App
+# passwords are revocable, can't change your email or delete your account,
+# and can be thrown away without touching your real credentials.
+BLUESKY_PDS_ENDPOINT = "https://bsky.social"
+BLUESKY_IDENTIFIER = os.environ.get("BLUESKY_IDENTIFIER", "")      # handle or email
+BLUESKY_APP_PASSWORD = os.environ.get("BLUESKY_APP_PASSWORD", "")  # xxxx-xxxx-xxxx-xxxx
+
 BLUESKY_SEARCH_LIMIT = 50
- 
+
 # ---------------------------------------------------------------------------
 # Mastodon - public hashtag timeline endpoint, no API key required.
 # Add/remove instances as needed. Indian-specific instances are sparse, so
@@ -97,7 +101,7 @@ MASTODON_INSTANCES = [
     "mstdn.social",
 ]
 MASTODON_TIMELINE_LIMIT = 40
- 
+
 # ---------------------------------------------------------------------------
 # RSS / news sources - weather-relevant feeds. No API key required.
 # These cover the "websites" data source in the problem statement.
@@ -109,7 +113,7 @@ RSS_FEEDS = [
     {"name": "Skymet Weather", "url": "https://www.skymetweather.com/content/feed/"},
     {"name": "Down To Earth - Climate", "url": "https://www.downtoearth.org.in/rss/climate-change"},
     {"name": "Down To Earth - Natural Disasters", "url": "https://www.downtoearth.org.in/rss/natural-disasters"},
- 
+
     # --- National news ---
     {"name": "TOI - Top Stories", "url": "https://timesofindia.indiatimes.com/rssfeedstopstories.cms"},
     {"name": "TOI - India", "url": "https://timesofindia.indiatimes.com/rssfeeds/-2128936835.cms"},
@@ -125,7 +129,7 @@ RSS_FEEDS = [
     {"name": "Firstpost - India", "url": "https://www.firstpost.com/rss/india.xml"},
     {"name": "Scroll.in", "url": "https://scroll.in/feed"},
     {"name": "Deccan Herald - National", "url": "https://www.deccanherald.com/rss/national.rss"},
- 
+
     # --- City / regional feeds (where local weather actually gets reported) ---
     {"name": "TOI - Mumbai", "url": "https://timesofindia.indiatimes.com/rssfeeds/-2128838597.cms"},
     {"name": "TOI - Delhi", "url": "https://timesofindia.indiatimes.com/rssfeeds/-2128839596.cms"},
@@ -139,7 +143,7 @@ RSS_FEEDS = [
     {"name": "The Hindu - Telangana", "url": "https://www.thehindu.com/news/national/telangana/feeder/default.rss"},
     {"name": "The Hindu - Karnataka", "url": "https://www.thehindu.com/news/national/karnataka/feeder/default.rss"},
 ]
- 
+
 # ---------------------------------------------------------------------------
 # Open-Meteo - free weather API, NO API KEY, no signup, no approval needed.
 # https://open-meteo.com  (free for non-commercial use)
@@ -154,7 +158,7 @@ RSS_FEEDS = [
 # 0.0 mm, that mismatch is a strong fake-report signal.
 # ---------------------------------------------------------------------------
 OPENMETEO_ENDPOINT = "https://api.open-meteo.com/v1/forecast"
- 
+
 # Current-condition variables to request. Chosen to map onto the event
 # categories in the problem statement (rain/flood, heat, wind, fog...).
 OPENMETEO_CURRENT_VARS = [
@@ -169,11 +173,11 @@ OPENMETEO_CURRENT_VARS = [
     "wind_gusts_10m",
     "visibility",
 ]
- 
+
 # How many cities to request per HTTP call. Open-Meteo accepts comma-separated
 # coordinate lists, so all ~55 cities fit in one or two requests.
 OPENMETEO_BATCH_SIZE = 50
- 
+
 # Thresholds used to derive an event category from measured values.
 # Loosely aligned with IMD's own advisory thresholds.
 OPENMETEO_THRESHOLDS = {
@@ -183,14 +187,25 @@ OPENMETEO_THRESHOLDS = {
     "strong_wind_kmh": 40.0,       # sustained/gust wind
     "low_visibility_m": 1000.0,    # -> fog
 }
- 
+
+# ---------------------------------------------------------------------------
+# Maximum age of collected content
+# ---------------------------------------------------------------------------
+# Social and RSS sources happily return content from weeks ago - a hashtag
+# timeline for a quiet tag like #duststorm may surface month-old posts. For a
+# real-time platform that is noise, and it pollutes ML training data.
+#
+# Records older than this are dropped at normalization time. Set to None to
+# disable the filter entirely.
+MAX_CONTENT_AGE_HOURS = 168  # 1 week
+
 # ---------------------------------------------------------------------------
 # Citizen reports - simulated "app/web form" intake. In production this
 # would be a POST endpoint; for the hackathon it reads a local queue file
 # that a simple form (see connectors/citizen_connector.py) appends to.
 # ---------------------------------------------------------------------------
 CITIZEN_REPORTS_FILE = os.path.join(SAMPLE_DATA_DIR, "citizen_reports_queue.json")
- 
+
 # ---------------------------------------------------------------------------
 # Geocoding (optional) - OpenStreetMap Nominatim, free, rate-limited to
 # 1 request/sec per their usage policy. Used only as a fallback when we
@@ -199,7 +214,7 @@ CITIZEN_REPORTS_FILE = os.path.join(SAMPLE_DATA_DIR, "citizen_reports_queue.json
 ENABLE_LIVE_GEOCODING = os.environ.get("ENABLE_LIVE_GEOCODING", "false").lower() == "true"
 NOMINATIM_USER_AGENT = "onyx-weather-pipeline (hackathon project)"
 NOMINATIM_RATE_LIMIT_SECONDS = 1.1
- 
+
 # ---------------------------------------------------------------------------
 # Indian States (for location tagging)
 # ---------------------------------------------------------------------------
@@ -212,7 +227,7 @@ INDIAN_STATES = [
     "West Bengal", "Delhi", "Jammu and Kashmir", "Ladakh", "Puducherry",
     "Chandigarh",
 ]
- 
+
 # ---------------------------------------------------------------------------
 # Major Indian cities -> (state, latitude, longitude)
 # Not exhaustive - covers state capitals + major metros so the demo has
