@@ -116,6 +116,8 @@ python main.py purge-demo --dry-run     # list any sample rows in the DB
 python main.py purge-demo               # remove them
 python main.py purge-old --dry-run      # list rows older than the age cutoff
 python main.py purge-old                # remove them
+python main.py purge-unlocated --dry-run  # list rows with no Indian state
+python main.py purge-unlocated            # remove them
 python main.py export --format csv --out exports/weather_reports.csv
 python main.py export --format json --out exports/weather_reports.json
 ```
@@ -132,6 +134,59 @@ already did, `purge-demo` removes them safely (it matches exact IDs from the
 fixture files, so it can only ever delete known-fake rows).
 
 ---
+
+## What gets filtered out
+
+Three filters run at insert time. Each reports a count in the `fetch` output,
+so nothing is dropped silently.
+
+| Filter | Config | Counter |
+|---|---|---|
+| Content older than 7 days | `MAX_CONTENT_AGE_HOURS = 168` | `too_old=N` |
+| Not locatable in India | `REQUIRE_INDIAN_LOCATION = True` | `no_location=N` |
+| Unparseable timestamp | *(reported, not dropped)* | `no_date=N` |
+
+### Why the India filter matters
+
+Hashtag timelines are global. A search for `#rain` returns Manchester and
+Melbourne alongside Mumbai. On a national platform those rows pollute the
+dashboard's location filters and hand the ML stage irrelevant examples, so a
+record is dropped unless `cleaning.guess_location()` resolves an Indian state
+for it.
+
+### How location detection works
+
+Keyword matching against `INDIAN_CITIES` (319 places) and `INDIAN_STATES`.
+The list covers metros and their older names (Bombay, Calcutta, Madras,
+Bengaluru, Vizag, Trivandrum), all state and UT capitals, tier-2 and tier-3
+cities, regions that appear in weather reporting (Konkan, Vidarbha,
+Saurashtra, Wayanad, Sundarbans), and the metro localities where waterlogging
+actually gets reported (Andheri, Kurla, Koramangala, Gachibowli, Thane).
+
+**Ambiguous names need corroboration.** Some Indian place names are also
+common Hindi words or foreign cities:
+
+| Text | Naive result | Actual result |
+|---|---|---|
+| `wo chala gaya tha barish me` | Gaya, Bihar | dropped |
+| `vegetables at the mandi` | Mandi, HP | dropped |
+| `Salem Oregon flooding` | Salem, **Tamil Nadu** | dropped |
+| `Salem records 80mm, Tamil Nadu on alert` | Salem, Tamil Nadu | Salem, Tamil Nadu |
+
+Names in `AMBIGUOUS_PLACES` (in `cleaning.py`) only count when the text also
+shows an India signal — an explicit India/IMD mention, or a second
+unambiguous Indian place.
+
+**If you're losing rows you want**, widen `INDIAN_CITIES` rather than turning
+the filter off. A genuinely Indian post that names no place at all ("heavy
+rain here since morning") is indistinguishable from a foreign one, and no
+amount of tuning fixes that.
+
+### Filters only apply to new rows
+
+All three run at insert time. Rows already in the database are untouched, so
+after changing a setting run the matching purge command to bring existing
+data in line.
 
 ## Output format
 
@@ -244,7 +299,11 @@ without supervision.
 
 - **New hashtags/keywords** → `WEATHER_HASHTAGS` / `WEATHER_KEYWORDS` in `config.py`
 - **New cities** → `INDIAN_CITIES` in `config.py` (city → state, lat, lon).
-  Open-Meteo automatically picks up anything added here.
+  This is the single biggest lever on how much data survives the India
+  filter — a post about a place that isn't listed gets discarded. Open-Meteo
+  also automatically polls anything added here.
+  If the name doubles as a common word or foreign city, add it to
+  `AMBIGUOUS_PLACES` in `cleaning.py` too.
 - **New RSS feeds** → `RSS_FEEDS` in `config.py`. Dead feeds log a warning and
   are skipped, so a broad list is safe.
 - **New source** → add `connectors/<name>_connector.py` exposing

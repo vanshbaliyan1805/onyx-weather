@@ -10,6 +10,7 @@ CLI wrapper around `run_pipeline()`.
 import time
 
 import db
+from config import REQUIRE_INDIAN_LOCATION
 from cleaning import normalize_record, is_too_old, parse_timestamp
 from connectors import (
     openmeteo_connector,
@@ -59,7 +60,8 @@ def run_pipeline(sources: list = None, demo: bool = False, db_path: str = None) 
             continue
 
         stats = {"fetched": 0, "inserted": 0, "flagged_duplicate": 0,
-                 "duplicate_source": 0, "too_old": 0, "no_date": 0, "errors": 0}
+                 "duplicate_source": 0, "too_old": 0, "no_date": 0,
+                 "no_location": 0, "errors": 0}
         start = time.time()
         try:
             raw_records = connector.fetch(demo=demo)
@@ -86,6 +88,12 @@ def run_pipeline(sources: list = None, demo: bool = False, db_path: str = None) 
                 if is_too_old(normalized["posted_at"]):
                     stats["too_old"] += 1
                     continue
+
+                # drop anything we couldn't place in India (REQUIRE_INDIAN_LOCATION).
+                # Hashtag timelines are global; this is a national platform.
+                if REQUIRE_INDIAN_LOCATION and not normalized["state"]:
+                    stats["no_location"] += 1
+                    continue
                 result = db.insert_record(normalized, db_path=db_path)
                 stats[result] = stats.get(result, 0) + 1
             except Exception as exc:
@@ -95,8 +103,8 @@ def run_pipeline(sources: list = None, demo: bool = False, db_path: str = None) 
         elapsed = time.time() - start
         print(f"[pipeline] {name}: fetched={stats['fetched']} inserted={stats['inserted']} "
               f"flagged_duplicate={stats['flagged_duplicate']} duplicate_source={stats['duplicate_source']} "
-              f"too_old={stats['too_old']} no_date={stats['no_date']} "
-              f"errors={stats['errors']} ({elapsed:.1f}s)")
+              f"too_old={stats['too_old']} no_location={stats['no_location']} "
+              f"no_date={stats['no_date']} errors={stats['errors']} ({elapsed:.1f}s)")
         summary[name] = stats
 
     return summary
