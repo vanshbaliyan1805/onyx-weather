@@ -189,6 +189,50 @@ def cmd_purge_old(args):
     print(f"\nDeleted {len(stale)} row(s). Remaining: {db.count_records()}")
 
 
+def cmd_purge_unlocated(args):
+    """
+    Delete rows with no resolved Indian state.
+
+    The REQUIRE_INDIAN_LOCATION filter only applies at insert time, so rows
+    collected before it existed are still in the database. Hashtag timelines
+    are global - a #rain search returns Manchester and Melbourne alongside
+    Mumbai - so on an India-only platform these are noise.
+    """
+    rows = db.fetch_all()
+    unlocated = [r for r in rows if not r["state"]]
+
+    print(f"Database holds {len(rows)} rows.\n")
+
+    if not unlocated:
+        print("Every row has a state. Nothing to purge.")
+        return
+
+    by_source = {}
+    for r in unlocated:
+        by_source[r["source"]] = by_source.get(r["source"], 0) + 1
+
+    pct = 100.0 * len(unlocated) / len(rows) if rows else 0
+    print(f"{len(unlocated)} row(s) ({pct:.1f}%) have no Indian state:")
+    for src, n in sorted(by_source.items(), key=lambda x: -x[1]):
+        total_for_src = sum(1 for r in rows if r["source"] == src)
+        share = 100.0 * n / total_for_src if total_for_src else 0
+        print(f"  {src:<12} {n:>6}  ({share:.0f}% of that source)")
+
+    print("\nSample of what would go:")
+    for r in unlocated[:5]:
+        print(f"  [{r['source']}] {(r['text_clean'] or '')[:66]}...")
+
+    if args.dry_run:
+        print("\n(dry run - nothing deleted. Re-run without --dry-run to remove them.)")
+        return
+
+    with db.get_conn() as conn:
+        conn.executemany(
+            "DELETE FROM weather_reports WHERE id = ?", [(r["id"],) for r in unlocated]
+        )
+    print(f"\nDeleted {len(unlocated)} row(s). Remaining: {db.count_records()}")
+
+
 def cmd_stats(args):
     total = db.count_records()
     print(f"Total rows: {total}\n")
@@ -253,6 +297,14 @@ def build_parser():
     p_purge_old.add_argument("--dry-run", action="store_true",
                              help="Show what would be deleted, delete nothing")
     p_purge_old.set_defaults(func=cmd_purge_old)
+
+    p_purge_unloc = sub.add_parser(
+        "purge-unlocated",
+        help="Delete rows with no resolved Indian state (the fetch filter only applies to new rows)",
+    )
+    p_purge_unloc.add_argument("--dry-run", action="store_true",
+                               help="Show what would be deleted, delete nothing")
+    p_purge_unloc.set_defaults(func=cmd_purge_unlocated)
 
     p_export = sub.add_parser("export", help="Export the database for handoff")
     p_export.add_argument("--format", choices=["csv", "json"], default="csv")

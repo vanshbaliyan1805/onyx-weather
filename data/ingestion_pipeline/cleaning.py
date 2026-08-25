@@ -38,6 +38,25 @@ NON_ALNUM_RE = re.compile(r"[^a-z0-9\s]")
 _CITY_LOOKUP = {name.lower(): value for name, value in INDIAN_CITIES.items()}
 _STATE_LOOKUP = {s.lower(): s for s in INDIAN_STATES}
 
+# Place names that are also common words, names, or foreign cities. Matching
+# these alone produces real errors:
+#
+#   "wo chala gaya tha"        -> Gaya, Bihar        (Hindi for "went")
+#   "vegetables at the mandi"  -> Mandi, HP          (Hindi for "market")
+#   "Salem Oregon flooding"    -> Salem, Tamil Nadu  (wrong continent)
+#
+# These are all real Indian places we want to keep, so the fix isn't to drop
+# them - it's to require corroboration. An ambiguous name only counts if the
+# text ALSO shows an India signal: an explicit mention of India/IMD, or a
+# second, unambiguous Indian place name.
+AMBIGUOUS_PLACES = {
+    "gaya", "mandi", "salem", "sagar", "hassan", "pali", "puri", "kota",
+    "daman", "diu", "leh", "vasco", "satara", "bastar", "goa", "mathura",
+}
+
+# Words that independently establish the text is about India.
+INDIA_SIGNALS = ("india", "indian", "imd", "bharat", "monsoon")
+
 
 def utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -126,6 +145,27 @@ def guess_event_category(text: str) -> str:
     return DEFAULT_EVENT_CATEGORY
 
 
+def _has_india_signal(lowered: str) -> bool:
+    """
+    True if the text independently establishes an Indian context - either an
+    explicit India/IMD mention, or an unambiguous Indian place name.
+
+    Used to decide whether an ambiguous place-name match (Gaya, Mandi, Salem)
+    should be trusted.
+    """
+    if any(sig in lowered for sig in INDIA_SIGNALS):
+        return True
+    for name in _CITY_LOOKUP:
+        if name in AMBIGUOUS_PLACES:
+            continue
+        if re.search(r"\b" + re.escape(name) + r"\b", lowered):
+            return True
+    for state_lower in _STATE_LOOKUP:
+        if re.search(r"\b" + re.escape(state_lower) + r"\b", lowered):
+            return True
+    return False
+
+
 def guess_location(text: str, explicit_location: str = None):
     """
     Try to find an Indian city (and its state + lat/lon) mentioned in the
@@ -142,10 +182,29 @@ def guess_location(text: str, explicit_location: str = None):
 
     for candidate in candidates:
         lowered = candidate.lower()
+
+        # Collect every place name present, splitting confident hits from
+        # ones that need corroboration (see AMBIGUOUS_PLACES).
+        confident, ambiguous = [], []
         for city_name, (state, lat, lon) in _CITY_LOOKUP.items():
             # word-boundary match to avoid "pune" matching inside another word
             if re.search(r"\b" + re.escape(city_name) + r"\b", lowered):
-                return city_name.title(), state, lat, lon, candidate
+                (ambiguous if city_name in AMBIGUOUS_PLACES else confident).append(
+                    (city_name, state, lat, lon)
+                )
+
+        # Prefer the longest confident match - "navi mumbai" beats "mumbai",
+        # "greater noida" beats "noida".
+        if confident:
+            city_name, state, lat, lon = max(confident, key=lambda m: len(m[0]))
+            return city_name.title(), state, lat, lon, candidate
+
+        # Only ambiguous names matched. Accept them only if the text
+        # independently signals India - otherwise "Salem Oregon" would be
+        # filed under Tamil Nadu.
+        if ambiguous and _has_india_signal(lowered):
+            city_name, state, lat, lon = max(ambiguous, key=lambda m: len(m[0]))
+            return city_name.title(), state, lat, lon, candidate
 
     # No city hit - try to at least tag a state
     for candidate in candidates:
