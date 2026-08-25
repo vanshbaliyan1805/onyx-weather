@@ -8,6 +8,9 @@ engine = create_async_engine(
     settings.DATABASE_URL,
     echo=False,  # Set to True for debugging SQL queries
     future=True,
+    pool_size=5,
+    max_overflow=10,
+    pool_pre_ping=True,
 )
 
 # Async session maker

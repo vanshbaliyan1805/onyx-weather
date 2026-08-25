@@ -1,110 +1,100 @@
-# 🌪️ Onyx Weather Big Data Platform
+# Onyx Weather
 
-![Onyx Weather](https://img.shields.io/badge/Project-Onyx_Weather-000000?style=for-the-badge&logo=appwrite)
-![Status](https://img.shields.io/badge/Status-In_Development-blue?style=for-the-badge)
+Onyx Weather is a National Weather Big Data Analytics hackathon project. It collects real-time weather reports from various sources (Open-Meteo, RSS feeds, Mastodon, Citizen Reports), processes them using Machine Learning, and serves them via a robust FastAPI backend.
 
-Welcome to the **Onyx Weather Big Data Platform**. This project is a comprehensive, full-stack data analytics and machine learning pipeline designed to track, ingest, verify, and visualize real-time weather events across India using crowdsourced data, social media, and official meteorological reports.
+## Deployment Architecture
 
----
-
-## 🏗️ Architecture Overview
-
-The Onyx ecosystem is divided into four main pillars, communicating through a central PostgreSQL database.
+The project is designed with a modern, decoupled architecture suitable for both hackathon demonstrations and scalable production deployment:
 
 ```mermaid
 graph TD
-    A[Data Ingestion Pipeline] -->|Writes Raw Data| B[(PostgreSQL Database)]
-    C[FastAPI Backend] <-->|Reads & Updates| B
-    D[Machine Learning Service] <-->|Fetches & Classifies| C
-    E[Frontend Dashboard] <-->|Visualizes Data| C
+    A[Frontend] -->|HTTPS / REST API| B(FastAPI Backend Hosted on Render)
+    C[Data Ingestion Pipeline] -->|psycopg2| D[(Supabase PostgreSQL)]
+    B <-->|SQLAlchemy Async| D
+    B <-->|ML Classification| E[ML Service/Logic]
 ```
 
-### 1. Data Ingestion (`/data`)
-A continuous collection engine that pulls real-time weather information from public sources (Open-Meteo, Mastodon, RSS feeds, and Citizen reports).
-- **Status:** Built (currently configured for SQLite, needs to be pointed to PostgreSQL).
-- **Core task:** Normalizes raw data, assigns a preliminary "guess" for event categories, and writes it directly to the database. 
-- *See [Data Pipeline README](./data/ingestion_pipeline/README.md) for details.*
+### 1. PostgreSQL Database (Hosted on Supabase)
+We use a **shared PostgreSQL database** hosted on Supabase.
+- The **Data Ingestion Team** runs their Python pipeline locally or via a cron job, writing data directly to this Supabase PostgreSQL instance using `psycopg2`.
+- The **Backend Team** connects to this exact same database using `SQLAlchemy` (AsyncPG) to read and serve the data.
 
-### 2. FastAPI Backend (`/backend`)
-The central nervous system of the platform. It provides REST APIs for the Frontend to consume and the Machine Learning service to use for updating verification statuses.
-- **Status:** Built & Ready.
-- **Core task:** Serves paginated weather reports, analytics endpoints, and provides admin routes for manual verification. 
-- *See [Backend README](./backend/README.md) for details.*
+### 2. FastAPI Backend (Hosted on Render)
+The backend is a FastAPI application that will be deployed on Render as a Web Service.
+- It exposes REST APIs for the frontend.
+- It handles ML categorization and confidence scoring.
+- Connection pooling is optimized so that Render won't overwhelm the Supabase instance.
 
-### 3. Machine Learning (`/models`)
-*To be implemented.* This service will fetch pending unverified reports from the backend (`GET /api/v1/ml/pending`), analyze the text and media for duplicate/fake detection, and push predictions back to the backend (`POST /api/v1/ml/predictions`).
-- **Status:** Placeholder.
-
-### 4. Frontend Dashboard (`/frontend`)
-*To be implemented.* A React/Next.js interface for admins and users to view real-time weather events on a map, filter by verified status, and submit citizen reports.
-- **Status:** Placeholder.
+### 3. Frontend
+The frontend (Vercel/Netlify/Render) communicates **exclusively** with the FastAPI backend over HTTPS. It never talks directly to the database.
 
 ---
 
-## 🚀 Getting Started
+## Local Development Setup
 
-If you are joining the team, here is how you can get the core systems running on your local machine.
-
-### Prerequisites
-- Python 3.9+
-- PostgreSQL installed and running (or a Cloud Database URL like Supabase/Render)
-
-### 1️⃣ Setting up the Backend
-1. Open a terminal and navigate to the backend directory:
+### 1. Database Setup
+1. Create a local PostgreSQL database (e.g., `weather_db`).
+2. Run the backend migrations to create the tables:
    ```bash
    cd backend
-   ```
-2. Create and activate a virtual environment:
-   ```bash
    python -m venv venv
-   # Windows:
-   venv\Scripts\activate
-   # macOS/Linux:
-   source venv/bin/activate
-   ```
-3. Install dependencies:
-   ```bash
+   venv\Scripts\activate  # (or source venv/bin/activate on Mac/Linux)
    pip install -r requirements.txt
-   ```
-4. Setup your Environment Variables:
-   - Duplicate `backend/.env.example` and rename it to `backend/.env`.
-   - Update `DATABASE_URL` with your PostgreSQL connection string. *(Note: If you want to share data with the rest of the team, use the team's Cloud Database URL instead of localhost).*
-5. Run the Database Migrations:
-   ```bash
+   
+   # Setup .env file
+   cp .env.example .env
+   # Edit .env with your local DB URL: postgresql+asyncpg://user:password@localhost:5432/weather_db
+   
    alembic upgrade head
    ```
-6. Start the Server:
-   ```bash
-   uvicorn main:app --reload
-   ```
-   *The API will be available at http://localhost:8000. View the Swagger docs at http://localhost:8000/docs.*
 
-### 2️⃣ Running the Data Ingestion
-1. Open a new terminal and navigate to the ingestion pipeline:
-   ```bash
-   cd data/ingestion_pipeline
-   ```
-2. Set up the virtual environment:
-   ```bash
-   python -m venv .venv
-   .venv\Scripts\activate
-   ```
-3. Install dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
-4. Fetch Data:
-   ```bash
-   python main.py fetch
-   ```
+### 2. Running Data Ingestion
+The ingestion pipeline has been updated to write to PostgreSQL.
+```bash
+cd data/ingestion_pipeline
+python -m venv venv
+venv\Scripts\activate
+pip install -r requirements.txt
+
+# Run a demo fetch
+python main.py fetch --demo
+```
+*(Note: It will automatically load the `DATABASE_URL` from the backend's `.env` file for local development!)*
+
+### 3. Running the Backend
+```bash
+cd backend
+venv\Scripts\activate
+uvicorn main:app --reload
+```
+Check `http://localhost:8000/docs` to see the Swagger UI.
 
 ---
 
-## 🤝 Contributing & Git Workflow
+## Production Deployment Guide
 
-- **Never commit `.env` files.** They contain sensitive passwords and API keys. We have already configured `.gitignore` to prevent this.
-- **Branching:** When building a new feature (e.g., the frontend or ML service), create a new branch from `main` (e.g., `git checkout -b frontend_dashboard`).
-- **Database:** For seamless team collaboration, we highly recommend using a shared cloud database (like Supabase) so everyone is looking at the same data.
+### Hosting the Database on Supabase
+1. Create a project on [Supabase](https://supabase.com).
+2. Go to Project Settings -> Database and copy the **Connection string (URI)**.
+3. Make sure to use the **Transaction pooler** port (`6543`) for scalable connections!
+4. The URL looks like: `postgresql://postgres.[ref]:[password]@aws-0-[region].pooler.supabase.com:6543/postgres`
+
+### Hosting the Backend on Render
+1. Create a **Web Service** on [Render](https://render.com).
+2. Connect this GitHub repository.
+3. Use the following settings (pre-configured in `render.yaml`):
+   - **Root Directory**: `backend`
+   - **Build Command**: `pip install -r requirements.txt`
+   - **Start Command**: `uvicorn main:app --host 0.0.0.0 --port $PORT`
+4. **Environment Variables**:
+   - `DATABASE_URL`: Add your Supabase URI (Replace `postgresql://` with `postgresql+asyncpg://`).
+   - `FRONTEND_ORIGINS`: Add the URL of your deployed frontend (e.g., `https://my-frontend.vercel.app`).
+   - `OPENAI_API_KEY`: Add your API key for ML processing.
+5. Deploy! Render will automatically give you a secure `https://...onrender.com` URL.
 
 ---
-*Built for the Onyx Hackathon.*
+
+## Important Rules for the Team
+- **Do NOT commit passwords or API keys to GitHub.** Use `.env` files locally and Environment Variables in Render/Supabase.
+- **Do NOT change the ingestion database schema.** The data ingestion team writes to the `weather_reports` table using raw SQL. If you change columns in FastAPI, you will break their pipeline!
+- **Run `alembic upgrade head`** whenever you pull new code to ensure your local DB matches the required schema.
