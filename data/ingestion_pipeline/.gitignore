@@ -1,0 +1,24 @@
+# Virtual environment - machine-specific, never share or commit
+.venv/
+venv/
+
+# Python bytecode
+__pycache__/
+*.py[cod]
+
+# Secrets - .env holds API credentials. NEVER commit this.
+.env
+
+# The database and exports are generated data, not source code.
+# Remove these two lines if you deliberately want to share collected data.
+*.db
+exports/
+
+# Live citizen-report queue (generated at runtime)
+sample_data/citizen_reports_queue.json
+
+# Editor / OS noise
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

@@ -16,7 +16,7 @@
         "cloud_cover": 100,
         "wind_speed_10m": 31.5,
         "wind_gusts_10m": 52.2,
-        "visibility": 3200
+        "visibility": 3200.0
       },
       "current_units": {
         "temperature_2m": " C",
@@ -38,13 +38,13 @@
         "temperature_2m": 43.7,
         "relative_humidity_2m": 12,
         "apparent_temperature": 46.9,
-        "precipitation": 0,
-        "rain": 0,
+        "precipitation": 0.0,
+        "rain": 0.0,
         "weather_code": 0,
         "cloud_cover": 4,
         "wind_speed_10m": 14.2,
-        "wind_gusts_10m": 22,
-        "visibility": 24000
+        "wind_gusts_10m": 22.0,
+        "visibility": 24000.0
       },
       "current_units": {
         "temperature_2m": " C",
@@ -66,13 +66,13 @@
         "temperature_2m": 19.1,
         "relative_humidity_2m": 96,
         "apparent_temperature": 19.8,
-        "precipitation": 0,
-        "rain": 0,
+        "precipitation": 0.0,
+        "rain": 0.0,
         "weather_code": 45,
         "cloud_cover": 82,
         "wind_speed_10m": 5.4,
         "wind_gusts_10m": 9.1,
-        "visibility": 450
+        "visibility": 450.0
       },
       "current_units": {
         "temperature_2m": " C",
@@ -93,14 +93,14 @@
         "time": "2026-08-23T15:30",
         "temperature_2m": 30.2,
         "relative_humidity_2m": 74,
-        "apparent_temperature": 36,
+        "apparent_temperature": 36.0,
         "precipitation": 2.1,
         "rain": 2.1,
         "weather_code": 95,
         "cloud_cover": 91,
         "wind_speed_10m": 22.8,
         "wind_gusts_10m": 38.4,
-        "visibility": 8000
+        "visibility": 8000.0
       },
       "current_units": {
         "temperature_2m": " C",

@@ -1,32 +1,32 @@
 """
 Open-Meteo connector - authoritative current weather for Indian cities.
- 
+
 Why this source matters
 -----------------------
 Every other connector in this pipeline collects what *people say* about the
 weather. This one collects what the weather *actually is*, from a numerical
 weather model, for all ~55 cities in config.INDIAN_CITIES.
- 
+
 That gives the project two things:
- 
+
 1. Guaranteed data volume. No API key, no signup, no approval, no rate-limit
    cliff - it returns a full set of rows on every single run. Unlike social
    sources, it cannot come back empty.
- 
+
 2. Ground truth for fake-report detection. The ML teammate can join a social
    report's (city, timestamp) against the observed conditions here. A post
    claiming "streets flooded in Jaipur" when measured precipitation in Jaipur
    is 0.0 mm is a strong misinformation signal. This is the column that makes
    verification possible rather than guesswork.
- 
+
 API: https://api.open-meteo.com/v1/forecast  (free for non-commercial use)
 Docs: https://open-meteo.com/en/docs
 """
- 
+
 import json
 import os
 from datetime import datetime, timezone
- 
+
 from config import (
     OPENMETEO_ENDPOINT,
     OPENMETEO_CURRENT_VARS,
@@ -35,9 +35,9 @@ from config import (
     INDIAN_CITIES,
     SAMPLE_DATA_DIR,
 )
- 
+
 SOURCE_NAME = "openmeteo"
- 
+
 # WMO weather interpretation codes -> (human label, our event category).
 # Reference: https://open-meteo.com/en/docs (WMO Weather interpretation codes)
 WMO_CODES = {
@@ -70,12 +70,12 @@ WMO_CODES = {
     96: ("thunderstorm with slight hail", "thunderstorm"),
     99: ("thunderstorm with heavy hail", "thunderstorm"),
 }
- 
- 
+
+
 def _classify(current: dict) -> tuple:
     """
     Derive (event_category, human_summary) from measured values.
- 
+
     Threshold checks run BEFORE the WMO code lookup, because a measured
     45 km/h gust or 42 C reading is a more specific signal than the model's
     general "partly cloudy" code. First match wins, most severe first.
@@ -87,9 +87,9 @@ def _classify(current: dict) -> tuple:
     wind = current.get("wind_speed_10m") or 0.0
     visibility = current.get("visibility")
     code = current.get("weather_code")
- 
+
     code_label, code_category = WMO_CODES.get(code, ("unknown conditions", "other"))
- 
+
     if precip >= t["very_heavy_rain_mm"]:
         return "flooding", f"very heavy rainfall ({precip} mm) - flooding risk"
     if precip >= t["heavy_rain_mm"]:
@@ -100,21 +100,21 @@ def _classify(current: dict) -> tuple:
         return "strong_wind", f"strong winds (gusts {gusts} km/h)"
     if visibility is not None and visibility <= t["low_visibility_m"]:
         return "fog", f"low visibility ({visibility} m)"
- 
+
     # No threshold breached - fall back to whatever the model's code says.
     return code_category, code_label
- 
- 
+
+
 def _fetch_batch_live(cities: list) -> dict:
     """
     One HTTP call for a batch of cities. Open-Meteo accepts comma-separated
     latitude/longitude lists and returns a JSON array in the same order.
     """
     import requests
- 
+
     lats = ",".join(str(c[2]) for c in cities)
     lons = ",".join(str(c[3]) for c in cities)
- 
+
     params = {
         "latitude": lats,
         "longitude": lons,
@@ -124,24 +124,24 @@ def _fetch_batch_live(cities: list) -> dict:
     resp = requests.get(OPENMETEO_ENDPOINT, params=params, timeout=30)
     resp.raise_for_status()
     payload = resp.json()
- 
+
     # Single-location requests return a dict; multi-location return a list.
     return payload if isinstance(payload, list) else [payload]
- 
- 
+
+
 def _to_raw(city_name: str, state: str, lat: float, lon: float, block: dict) -> dict:
     current = block.get("current", {}) or {}
     units = block.get("current_units", {}) or {}
- 
+
     category, summary = _classify(current)
     observed_at = current.get("time") or datetime.now(timezone.utc).isoformat()
- 
+
     temp = current.get("temperature_2m")
     precip = current.get("precipitation")
     humidity = current.get("relative_humidity_2m")
     wind = current.get("wind_speed_10m")
     gusts = current.get("wind_gusts_10m")
- 
+
     # Build a readable sentence so this row looks like every other row in the
     # table and the same text-based tooling (search, the dashboard, the ML
     # teammate's text pipeline) works on it unchanged.
@@ -153,7 +153,7 @@ def _to_raw(city_name: str, state: str, lat: float, lon: float, block: dict) -> 
         f"wind {wind}{units.get('wind_speed_10m', ' km/h')} "
         f"(gusts {gusts}{units.get('wind_gusts_10m', ' km/h')})."
     )
- 
+
     return {
         "source": SOURCE_NAME,
         # Stable per city per observation timestamp, so re-running inside the
@@ -182,8 +182,8 @@ def _to_raw(city_name: str, state: str, lat: float, lon: float, block: dict) -> 
             "longitude": lon,
         },
     }
- 
- 
+
+
 def fetch(demo: bool = False) -> list:
     if demo:
         path = os.path.join(SAMPLE_DATA_DIR, "openmeteo_sample.json")
@@ -195,10 +195,10 @@ def fetch(demo: bool = False) -> list:
             _to_raw(i["city"], i["state"], i["latitude"], i["longitude"], i["block"])
             for i in items
         ]
- 
+
     # (name, state, lat, lon) for every configured city
     cities = [(name, meta[0], meta[1], meta[2]) for name, meta in INDIAN_CITIES.items()]
- 
+
     # De-duplicate coordinates - several aliases share a location
     # (bengaluru/bangalore, vizag/visakhapatnam, kochi/cochin...). Sending the
     # same lat/lon twice just wastes quota and creates redundant rows.
@@ -210,7 +210,7 @@ def fetch(demo: bool = False) -> list:
             continue
         seen_coords.add(key)
         unique_cities.append(c)
- 
+
     results = []
     for i in range(0, len(unique_cities), OPENMETEO_BATCH_SIZE):
         batch = unique_cities[i:i + OPENMETEO_BATCH_SIZE]
@@ -219,11 +219,11 @@ def fetch(demo: bool = False) -> list:
         except Exception as exc:
             print(f"[openmeteo] batch {i // OPENMETEO_BATCH_SIZE + 1} failed: {exc}")
             continue
- 
+
         for city, block in zip(batch, blocks):
             try:
                 results.append(_to_raw(city[0], city[1], city[2], city[3], block))
             except Exception as exc:
                 print(f"[openmeteo] failed to parse {city[0]}: {exc}")
- 
+
     return results

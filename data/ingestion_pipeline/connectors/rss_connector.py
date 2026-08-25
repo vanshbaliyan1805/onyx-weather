@@ -25,12 +25,35 @@ def _entry_to_raw(entry, feed_name: str) -> dict:
     summary = getattr(entry, "summary", "") if hasattr(entry, "summary") else entry.get("summary", "")
     title = getattr(entry, "title", "") if hasattr(entry, "title") else entry.get("title", "")
     link = getattr(entry, "link", "") if hasattr(entry, "link") else entry.get("link", "")
+    # Date handling. feedparser exposes BOTH a raw RFC-2822 string
+    # ('published') and an already-parsed struct_time ('published_parsed').
+    # Prefer the parsed one and convert it to ISO-8601 here, so every row in
+    # the database carries a consistent timestamp format regardless of source.
+    #
+    # This matters: feeds emit RFC-2822, APIs emit ISO-8601. Storing the raw
+    # feed string means downstream date filtering has to handle two standards,
+    # and anything that only handles ISO will silently treat every RSS row as
+    # having no date - letting arbitrarily old articles through.
     published = None
-    for attr in ("published", "updated"):
-        val = getattr(entry, attr, None) if hasattr(entry, attr) else entry.get(attr)
-        if val:
-            published = val
-            break
+    for attr in ("published_parsed", "updated_parsed"):
+        parsed = getattr(entry, attr, None) if hasattr(entry, attr) else entry.get(attr)
+        if parsed:
+            try:
+                from calendar import timegm
+                from datetime import datetime, timezone
+                published = datetime.fromtimestamp(timegm(parsed), tz=timezone.utc).isoformat()
+                break
+            except (TypeError, ValueError, OverflowError):
+                pass
+
+    # Fall back to the raw string only if the parsed form was missing/bad.
+    # cleaning.parse_timestamp understands RFC-2822, so this still works.
+    if not published:
+        for attr in ("published", "updated"):
+            val = getattr(entry, attr, None) if hasattr(entry, attr) else entry.get(attr)
+            if val:
+                published = val
+                break
 
     media_urls = []
     media_content = getattr(entry, "media_content", None) if hasattr(entry, "media_content") else entry.get("media_content")

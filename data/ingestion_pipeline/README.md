@@ -11,38 +11,56 @@ connectors/  →  cleaning.py  →  db.py                →  export (CSV/JSON)
 
 ---
 
-## Quick start (Windows / PowerShell)
+## Quick start
 
-```powershell
+```
 cd weather_pipeline
 
-# 1. Create and activate a virtual environment
+# 1. Create a virtual environment
 python -m venv .venv
-.venv\Scripts\Activate.ps1
 ```
 
-If PowerShell blocks that with a red "running scripts is disabled" error, run
-this once, then retry the activate line:
+### 2. Activate it — THE COMMAND DEPENDS ON YOUR TERMINAL
+
+This is the step people get wrong. Pick the row that matches what you're
+actually typing into:
+
+| Terminal | Command |
+|---|---|
+| Windows PowerShell | `.venv\Scripts\Activate.ps1` |
+| Windows **Git Bash** | `source .venv/Scripts/activate` |
+| Windows CMD | `.venv\Scripts\activate.bat` |
+| macOS / Linux | `source .venv/bin/activate` |
+
+**You'll know it worked when your prompt starts with `(.venv)`.**
+
+Note the Git Bash row: it uses forward slashes and `Scripts` (not `bin`).
+Running the PowerShell command in Git Bash fails with
+`.venvScriptsActivate.ps1: command not found`, because bash eats the
+backslashes.
+
+If PowerShell blocks activation with a red "running scripts is disabled"
+error, run this once, then retry:
 
 ```powershell
 Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
 ```
 
-```powershell
-# 2. Install dependencies
+### 3. The rest is the same everywhere
+
+```
+# Install dependencies
 pip install -r requirements.txt
 
-# 3. Create the database
+# Create the database
 python main.py init-db
 
-# 4. Collect data
+# Collect data
 python main.py fetch
 
-# 5. See what you got
+# See what you got
 python main.py stats
 ```
-
-On macOS/Linux the only difference is `source .venv/bin/activate` in step 1.
 
 **No API keys are required.** Every source that runs by default is fully open.
 
@@ -50,34 +68,42 @@ On macOS/Linux the only difference is `source .venv/bin/activate` in step 1.
 
 ## Sources
 
-| Source | What it pulls | Status |
+| Source | What it pulls | Auth needed? |
 |---|---|---|
-| **openmeteo** | Live measured conditions for ~51 Indian cities | ✅ Always works |
-| **mastodon** | Public posts on weather hashtags across instances | ✅ Working |
-| **rss** | Weather articles from 28 Indian news/weather feeds | ✅ Working |
-| **citizen** | Reports submitted through the intake queue | ✅ Working (empty until submissions arrive) |
-| bluesky | Public hashtag search | ⚠️ Disabled — upstream bug |
-| reddit | Weather posts from India subreddits | ⚠️ Disabled — access closed |
+| **openmeteo** | Live measured conditions for ~51 Indian cities | No |
+| **mastodon** | Public posts on weather hashtags across instances | No |
+| **rss** | Weather articles from 28 Indian news/weather feeds | No |
+| **bluesky** | Public posts matching weather hashtags | Yes (free) |
+| **citizen** | Reports submitted through the intake queue | No |
 
-### Why two sources are disabled
+### A note on Bluesky
 
-Both connectors are **complete and functional**. They're excluded from the
-default run because of platform-side access restrictions, not code problems:
+Bluesky's **public** search endpoint returns `403 Forbidden` for every
+unauthenticated query, despite their docs saying it shouldn't - a known
+upstream bug: https://github.com/bluesky-social/bsky-docs/issues/332
 
-- **Bluesky** — its public `searchPosts` endpoint returns `403 Forbidden` for
-  every unauthenticated query, despite their own docs saying it shouldn't.
-  Confirmed upstream bug: https://github.com/bluesky-social/bsky-docs/issues/332
-  Re-enable by adding `"bluesky"` to `DEFAULT_SOURCES` in `pipeline.py` if it
-  gets fixed.
+The connector works around this by authenticating instead. You need a free
+Bluesky account (email only, no phone number) and an **app password** from
+Settings -> Privacy and Security -> App Passwords. App passwords are
+revocable and can't change your email or delete your account, so they're
+safe to put in a `.env`.
 
-- **Reddit** — Reddit has closed self-serve app creation for the legacy Data
-  API. New apps now require a manually reviewed request gated on moderation use
-  cases, which an analytics pipeline doesn't qualify for. The connector works
-  the moment credentials exist; they just can't be provisioned on demand.
+Without credentials, Bluesky skips itself with a clear message rather than
+failing the run.
 
-Run either explicitly with `--source bluesky` / `--source reddit` to test.
+### Sources that were evaluated and dropped
 
----
+**Reddit** - Reddit closed self-serve app creation for its Data API. New apps
+now require a manually reviewed request gated on moderation use cases, which
+an analytics pipeline doesn't qualify for.
+
+**Telegram** - `my.telegram.org` returns a bare "ERROR" on app creation with
+no explanation. This is a widespread, unresolved issue
+(https://github.com/tdlib/telegram-bot-api/issues/597) that Telegram closed
+as "not planned". No reliable workaround exists.
+
+**Twitter/X** - no usable free read/search tier; paid plans start around
+$200/month, and scraping violates their terms.
 
 ## Commands
 
@@ -88,6 +114,8 @@ python main.py fetch --source rss       # collect from one (or "rss,mastodon")
 python main.py stats                    # row counts by source
 python main.py purge-demo --dry-run     # list any sample rows in the DB
 python main.py purge-demo               # remove them
+python main.py purge-old --dry-run      # list rows older than the age cutoff
+python main.py purge-old                # remove them
 python main.py export --format csv --out exports/weather_reports.csv
 python main.py export --format json --out exports/weather_reports.json
 ```
@@ -117,7 +145,7 @@ Every source produces the same 23 columns, so one loader handles all of them:
 | Column | Meaning |
 |---|---|
 | `id` | internal row ID |
-| `source` | `openmeteo` / `mastodon` / `rss` / `citizen` / `bluesky` / `reddit` |
+| `source` | `openmeteo` / `mastodon` / `rss` / `bluesky` / `citizen` |
 | `source_post_id` | the record's native ID on its platform |
 | `source_url` | permalink back to the original |
 | `author` | username/handle/outlet |
@@ -237,6 +265,10 @@ without supervision.
 
 **`ModuleNotFoundError`** — the virtual environment isn't active. Your prompt
 should start with `(.venv)`.
+
+**`.venvScriptsActivate.ps1: command not found`** — you're in Git Bash but ran
+the PowerShell activate command. Bash strips the backslashes. Use
+`source .venv/Scripts/activate` instead (see the table in Quick start).
 
 **`running scripts is disabled on this system`** — see the
 `Set-ExecutionPolicy` line in Quick start.

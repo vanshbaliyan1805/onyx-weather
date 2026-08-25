@@ -1,35 +1,35 @@
 """
 Mastodon connector.
- 
+
 Uses the public hashtag timeline endpoint:
     GET /api/v1/timelines/tag/:hashtag
 which is publicly readable (no auth) on virtually every instance -
 this is the same endpoint the "#hashtag" pages on a Mastodon instance's
 website use. Queried across a small list of large instances since the
 fediverse is decentralized and no single instance has "all" posts.
- 
+
 Docs: https://docs.joinmastodon.org/methods/timelines/#tag
 """
- 
+
 import json
 import os
 import re
- 
+
 from config import MASTODON_INSTANCES, MASTODON_TIMELINE_LIMIT, WEATHER_HASHTAGS, SAMPLE_DATA_DIR
- 
+
 SOURCE_NAME = "mastodon"
 HTML_TAG_RE = re.compile(r"<[^>]+>")
- 
- 
+
+
 def _strip_html(html: str) -> str:
     if not html:
         return ""
     return HTML_TAG_RE.sub(" ", html)
- 
- 
+
+
 def _fetch_tag_live(instance: str, tag: str, limit: int) -> list:
     import requests
- 
+
     # Same defensive header as the Bluesky connector - some instances
     # (and any CDN/WAF in front of them) reject a generic User-Agent.
     headers = {
@@ -37,13 +37,13 @@ def _fetch_tag_live(instance: str, tag: str, limit: int) -> list:
                       "+https://github.com/your-team/onyx-hackathon)",
         "Accept": "application/json",
     }
- 
+
     url = f"https://{instance}/api/v1/timelines/tag/{tag}"
     resp = requests.get(url, params={"limit": limit}, headers=headers, timeout=15)
     resp.raise_for_status()
     return resp.json()
- 
- 
+
+
 def _status_to_raw(status: dict) -> dict:
     account = status.get("account", {}) or {}
     media_urls = []
@@ -53,7 +53,7 @@ def _status_to_raw(status: dict) -> dict:
         if url:
             media_urls.append(url)
             media_type = attachment.get("type", "photo")
- 
+
     return {
         "source": SOURCE_NAME,
         "source_post_id": status.get("id") or status.get("uri"),
@@ -67,15 +67,15 @@ def _status_to_raw(status: dict) -> dict:
         "language": status.get("language"),
         "extra": status,
     }
- 
- 
+
+
 def fetch(demo: bool = False) -> list:
     if demo:
         path = os.path.join(SAMPLE_DATA_DIR, "mastodon_sample.json")
         with open(path, "r", encoding="utf-8") as f:
             statuses = json.load(f)
         return [_status_to_raw(s) for s in statuses]
- 
+
     results = []
     seen_ids = set()
     for instance in MASTODON_INSTANCES:
