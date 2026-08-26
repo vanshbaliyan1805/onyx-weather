@@ -22,3 +22,6 @@ sample_data/citizen_reports_queue.json
 .idea/
 .DS_Store
 Thumbs.db
+
+# Collector run log (generated)
+scheduler.log
