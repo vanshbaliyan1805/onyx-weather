@@ -35,9 +35,37 @@ README.md:
                                      an existing row already in the DB
     verification_status      TEXT     'unverified' | 'verified' | 'fake' - the ML
                                      teammate / admin panel updates this later
+    ml_label                  INTEGER 0 = genuine, 1 = fabricated. THE SUPERVISED
+                                     TRAINING TARGET. See the note below.
     raw_json                  TEXT     full original API payload (JSON string),
                                      kept so nothing is lost even if our
                                      normalization missed a useful field
+
+
+ml_label VS verification_status - THEY ARE NOT THE SAME THING
+-------------------------------------------------------------
+verification_status records PROVENANCE and workflow state: where a row came
+from, and whether a human or the admin panel has ruled on it. 'verified' on
+an Open-Meteo row means "this is a measurement", not "this claim was checked
+and held up".
+
+ml_label is the SUPERVISED TARGET: is this text fabricated or not.
+
+    0 = genuine       collected from a real source
+    1 = fabricated    deliberately synthesized as a training negative
+
+Everything collected by this pipeline is 0, because we collected it from real
+services. Class 1 rows come from a separate generator, not from here.
+
+Training on verification_status instead would be label leakage - the model
+would just learn to recognise Open-Meteo's sentence template and score ~99%
+while detecting nothing.
+
+HONEST CAVEAT: ml_label=0 means "we did not fabricate this", not "this claim
+is true". A collected social post could still be misinformation nobody has
+checked. Open-Meteo and RSS rows are safe to treat as genuine; social rows
+are presumed-genuine-but-unverified. That distinction lives in
+verification_status, which is why both columns exist.
 """
 
 import json
@@ -70,6 +98,7 @@ CREATE TABLE IF NOT EXISTS weather_reports (
     dedup_hash            TEXT,
     is_likely_duplicate   INTEGER DEFAULT 0,
     verification_status   TEXT DEFAULT 'unverified',
+    ml_label              INTEGER DEFAULT 0,
     raw_json              TEXT,
     UNIQUE(source, source_post_id)
 );
@@ -77,7 +106,15 @@ CREATE INDEX IF NOT EXISTS idx_reports_posted_at ON weather_reports(posted_at);
 CREATE INDEX IF NOT EXISTS idx_reports_city ON weather_reports(city);
 CREATE INDEX IF NOT EXISTS idx_reports_event_category ON weather_reports(event_category_guess);
 CREATE INDEX IF NOT EXISTS idx_reports_dedup_hash ON weather_reports(dedup_hash);
+CREATE INDEX IF NOT EXISTS idx_reports_ml_label ON weather_reports(ml_label);
 """
+
+# Columns added after the original schema shipped. Existing databases get them
+# via ALTER TABLE rather than needing a rebuild - see _migrate().
+#   (column name, SQL type + default)
+MIGRATIONS = [
+    ("ml_label", "INTEGER DEFAULT 0"),
+]
 
 
 @contextmanager
@@ -91,8 +128,38 @@ def get_conn(db_path: str = DB_PATH):
         conn.close()
 
 
+def _table_exists(conn) -> bool:
+    return conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='weather_reports'"
+    ).fetchone() is not None
+
+
+def _migrate(conn):
+    """
+    Add any columns introduced after the original schema, to databases that
+    already exist. SQLite's ALTER TABLE ADD COLUMN backfills every existing
+    row with the column's DEFAULT, so old rows get ml_label = 0 automatically
+    without a rebuild and without touching any of their other fields.
+
+    Idempotent - checks what's already there before altering.
+    """
+    existing = {row["name"] for row in conn.execute("PRAGMA table_info(weather_reports)")}
+    for column, spec in MIGRATIONS:
+        if column not in existing:
+            conn.execute(f"ALTER TABLE weather_reports ADD COLUMN {column} {spec}")
+            print(f"[db] migrated: added column '{column}' ({spec}) - "
+                  f"existing rows backfilled with the default")
+
+
 def init_db(db_path: str = DB_PATH):
     with get_conn(db_path) as conn:
+        # Order matters. If the table already exists, migrate it BEFORE running
+        # SCHEMA - SCHEMA creates indexes that may reference newly added
+        # columns, and those would fail against an un-migrated table.
+        # On a fresh database there's no table yet, so migration is skipped and
+        # SCHEMA creates everything correctly in one go.
+        if _table_exists(conn):
+            _migrate(conn)
         conn.executescript(SCHEMA)
 
 
