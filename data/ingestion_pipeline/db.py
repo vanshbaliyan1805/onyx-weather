@@ -35,191 +35,97 @@ README.md:
                                      an existing row already in the DB
     verification_status      TEXT     'unverified' | 'verified' | 'fake' - the ML
                                      teammate / admin panel updates this later
-    ml_label                  INTEGER 0 = genuine, 1 = fabricated. THE SUPERVISED
-                                     TRAINING TARGET. See the note below.
     raw_json                  TEXT     full original API payload (JSON string),
                                      kept so nothing is lost even if our
                                      normalization missed a useful field
-
-
-ml_label VS verification_status - THEY ARE NOT THE SAME THING
--------------------------------------------------------------
-verification_status records PROVENANCE and workflow state: where a row came
-from, and whether a human or the admin panel has ruled on it. 'verified' on
-an Open-Meteo row means "this is a measurement", not "this claim was checked
-and held up".
-
-ml_label is the SUPERVISED TARGET: is this text fabricated or not.
-
-    0 = genuine       collected from a real source
-    1 = fabricated    deliberately synthesized as a training negative
-
-Everything collected by this pipeline is 0, because we collected it from real
-services. Class 1 rows come from a separate generator, not from here.
-
-Training on verification_status instead would be label leakage - the model
-would just learn to recognise Open-Meteo's sentence template and score ~99%
-while detecting nothing.
-
-HONEST CAVEAT: ml_label=0 means "we did not fabricate this", not "this claim
-is true". A collected social post could still be misinformation nobody has
-checked. Open-Meteo and RSS rows are safe to treat as genuine; social rows
-are presumed-genuine-but-unverified. That distinction lives in
-verification_status, which is why both columns exist.
 """
 
 import json
-import sqlite3
+import psycopg2
+from psycopg2.extras import DictCursor
 from contextlib import contextmanager
+import os
+from dotenv import load_dotenv
 
 from config import DB_PATH
 
-SCHEMA = """
-CREATE TABLE IF NOT EXISTS weather_reports (
-    id                    INTEGER PRIMARY KEY AUTOINCREMENT,
-    source                TEXT NOT NULL,
-    source_post_id        TEXT,
-    source_url            TEXT,
-    author                TEXT,
-    text_raw              TEXT,
-    text_clean            TEXT,
-    hashtags              TEXT,
-    posted_at             TEXT,
-    ingested_at           TEXT,
-    city                  TEXT,
-    state                 TEXT,
-    latitude              REAL,
-    longitude             REAL,
-    location_raw          TEXT,
-    media_urls            TEXT,
-    media_type            TEXT,
-    event_category_guess  TEXT,
-    language              TEXT,
-    dedup_hash            TEXT,
-    is_likely_duplicate   INTEGER DEFAULT 0,
-    verification_status   TEXT DEFAULT 'unverified',
-    ml_label              INTEGER DEFAULT 0,
-    raw_json              TEXT,
-    UNIQUE(source, source_post_id)
-);
-CREATE INDEX IF NOT EXISTS idx_reports_posted_at ON weather_reports(posted_at);
-CREATE INDEX IF NOT EXISTS idx_reports_city ON weather_reports(city);
-CREATE INDEX IF NOT EXISTS idx_reports_event_category ON weather_reports(event_category_guess);
-CREATE INDEX IF NOT EXISTS idx_reports_dedup_hash ON weather_reports(dedup_hash);
-CREATE INDEX IF NOT EXISTS idx_reports_ml_label ON weather_reports(ml_label);
-"""
+# Load from backend .env for local dev
+load_dotenv(os.path.join(os.path.dirname(__file__), "..", "..", "backend", ".env"))
 
-# Columns added after the original schema shipped. Existing databases get them
-# via ALTER TABLE rather than needing a rebuild - see _migrate().
-#   (column name, SQL type + default)
-MIGRATIONS = [
-    ("ml_label", "INTEGER DEFAULT 0"),
-]
-
+# Extract database URL from env, removing +asyncpg if present so psycopg2 can use it
+DB_URL = os.environ.get("DATABASE_URL", "postgresql://postgres:Sonam%400100@localhost:5432/weather_db")
+if DB_URL.startswith("postgresql+asyncpg://"):
+    DB_URL = DB_URL.replace("postgresql+asyncpg://", "postgresql://")
 
 @contextmanager
-def get_conn(db_path: str = DB_PATH):
-    conn = sqlite3.connect(db_path)
-    conn.row_factory = sqlite3.Row
+def get_conn(*args, **kwargs):
+    conn = psycopg2.connect(DB_URL)
     try:
         yield conn
         conn.commit()
     finally:
         conn.close()
 
-
-def _table_exists(conn) -> bool:
-    return conn.execute(
-        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='weather_reports'"
-    ).fetchone() is not None
-
-
-def _migrate(conn):
-    """
-    Add any columns introduced after the original schema, to databases that
-    already exist. SQLite's ALTER TABLE ADD COLUMN backfills every existing
-    row with the column's DEFAULT, so old rows get ml_label = 0 automatically
-    without a rebuild and without touching any of their other fields.
-
-    Idempotent - checks what's already there before altering.
-    """
-    existing = {row["name"] for row in conn.execute("PRAGMA table_info(weather_reports)")}
-    for column, spec in MIGRATIONS:
-        if column not in existing:
-            conn.execute(f"ALTER TABLE weather_reports ADD COLUMN {column} {spec}")
-            print(f"[db] migrated: added column '{column}' ({spec}) - "
-                  f"existing rows backfilled with the default")
-
-
-def init_db(db_path: str = DB_PATH):
-    with get_conn(db_path) as conn:
-        # Order matters. If the table already exists, migrate it BEFORE running
-        # SCHEMA - SCHEMA creates indexes that may reference newly added
-        # columns, and those would fail against an un-migrated table.
-        # On a fresh database there's no table yet, so migration is skipped and
-        # SCHEMA creates everything correctly in one go.
-        if _table_exists(conn):
-            _migrate(conn)
-        conn.executescript(SCHEMA)
-
+def init_db(*args, **kwargs):
+    # Schema creation is now handled by backend Alembic migrations.
+    pass
 
 def _dedup_hash_exists(conn, dedup_hash: str) -> bool:
-    cur = conn.execute(
-        "SELECT 1 FROM weather_reports WHERE dedup_hash = ? LIMIT 1", (dedup_hash,)
-    )
-    return cur.fetchone() is not None
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT 1 FROM weather_reports WHERE dedup_hash = %s LIMIT 1", (dedup_hash,)
+        )
+        return cur.fetchone() is not None
 
-
-def insert_record(record: dict, db_path: str = DB_PATH) -> str:
+def insert_record(record: dict, *args, **kwargs) -> str:
     """
     Insert one normalized record. Returns one of:
         'inserted'          new row written
         'duplicate_source'  same (source, source_post_id) already present -> skipped
         'flagged_duplicate' new row written, but flagged is_likely_duplicate=1
-                             because its dedup_hash matches an existing row
-                             (e.g. same report picked up from two platforms)
     """
     record = dict(record)  # don't mutate caller's dict
     if isinstance(record.get("raw_json"), (dict, list)):
         record["raw_json"] = json.dumps(record["raw_json"], ensure_ascii=False, default=str)
 
-    with get_conn(db_path) as conn:
+    with get_conn() as conn:
         if record.get("dedup_hash") and _dedup_hash_exists(conn, record["dedup_hash"]):
             record["is_likely_duplicate"] = 1
+        else:
+            record["is_likely_duplicate"] = 0
 
         columns = list(record.keys())
-        placeholders = ", ".join(["?"] * len(columns))
+        placeholders = ", ".join(["%s"] * len(columns))
         col_list = ", ".join(columns)
-        sql = f"INSERT OR IGNORE INTO weather_reports ({col_list}) VALUES ({placeholders})"
-        cur = conn.execute(sql, [record[c] for c in columns])
-        if cur.rowcount == 0:
-            return "duplicate_source"
-        return "flagged_duplicate" if record["is_likely_duplicate"] else "inserted"
+        sql = f"""
+            INSERT INTO weather_reports ({col_list}) 
+            VALUES ({placeholders})
+            ON CONFLICT (source, source_post_id) DO NOTHING
+        """
+        
+        with conn.cursor() as cur:
+            cur.execute(sql, [record[c] for c in columns])
+            if cur.rowcount == 0:
+                return "duplicate_source"
+            return "flagged_duplicate" if record["is_likely_duplicate"] else "inserted"
 
+def count_records(*args, **kwargs) -> int:
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT COUNT(*) FROM weather_reports")
+            return cur.fetchone()[0]
 
-def count_records(db_path: str = DB_PATH) -> int:
-    with get_conn(db_path) as conn:
-        return conn.execute("SELECT COUNT(*) FROM weather_reports").fetchone()[0]
+def fetch_all(*args, **kwargs):
+    with get_conn() as conn:
+        with conn.cursor(cursor_factory=DictCursor) as cur:
+            cur.execute("SELECT * FROM weather_reports ORDER BY posted_at DESC")
+            return [dict(row) for row in cur.fetchall()]
 
-
-def fetch_all(db_path: str = DB_PATH):
-    with get_conn(db_path) as conn:
-        return [dict(row) for row in conn.execute("SELECT * FROM weather_reports ORDER BY posted_at DESC")]
-
-
-def summary_by_source(db_path: str = DB_PATH):
-    with get_conn(db_path) as conn:
-        rows = conn.execute(
-            "SELECT source, COUNT(*) as n, SUM(is_likely_duplicate) as dupes "
-            "FROM weather_reports GROUP BY source ORDER BY n DESC"
-        ).fetchall()
-        return [dict(r) for r in rows]
-
-
-# ---------------------------------------------------------------------------
-# Moving to Postgres later (e.g. for the real-time dashboard team):
-#   1. Swap sqlite3.connect(...) for psycopg2/SQLAlchemy connect.
-#   2. AUTOINCREMENT -> SERIAL / GENERATED ALWAYS AS IDENTITY.
-#   3. Everything else (column names, types, indexes) carries over almost
-#      unchanged - that's the point of keeping this schema flat and boring.
-# ---------------------------------------------------------------------------
+def summary_by_source(*args, **kwargs):
+    with get_conn() as conn:
+        with conn.cursor(cursor_factory=DictCursor) as cur:
+            cur.execute("""
+                SELECT source, COUNT(*) as n, SUM(is_likely_duplicate) as dupes 
+                FROM weather_reports GROUP BY source ORDER BY n DESC
+            """)
+            return [dict(r) for r in cur.fetchall()]
