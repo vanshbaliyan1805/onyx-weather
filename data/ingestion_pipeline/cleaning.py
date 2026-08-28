@@ -105,6 +105,28 @@ def parse_timestamp(value):
     return None
 
 
+def to_utc_iso(value) -> str:
+    """
+    Normalize any timestamp a connector hands us into a single canonical form:
+    ISO-8601, in UTC, with an explicit '+00:00' offset.
+
+    This is the last line of defence before the database. `posted_at` is
+    TIMESTAMPTZ NOT NULL in PostgreSQL, and a naive string there is not an
+    error - Postgres just interprets it in the *server's* timezone (UTC on
+    Supabase) and stores a silently wrong instant. An RSS feed's RFC-2822
+    date would be a hard insert failure. Neither can happen if every row
+    leaves cleaning.py in the same shape.
+
+    Doing it here rather than in each connector means a source added later
+    inherits the guarantee for free. Unparseable input falls back to "now",
+    which is honest for a real-time pipeline and keeps the NOT NULL contract.
+    """
+    dt = parse_timestamp(value)
+    if dt is None:
+        return utc_now_iso()
+    return dt.astimezone(timezone.utc).isoformat()
+
+
 def is_too_old(posted_at) -> bool:
     """
     True if this content is older than MAX_CONTENT_AGE_HOURS.
@@ -288,7 +310,7 @@ def normalize_record(raw: dict) -> dict:
     # precipitation/temperature/wind, not from words) may pass it explicitly.
     # Measurement beats keyword-matching, so an explicit value always wins.
     event_category_guess = raw.get("event_category") or guess_event_category(text_raw)
-    posted_at = raw.get("posted_at") or utc_now_iso()
+    posted_at = to_utc_iso(raw.get("posted_at"))
     dedup_hash = make_dedup_hash(text_clean, city, posted_at)
 
     return {
