@@ -83,13 +83,23 @@ def log(message: str):
 
 def run_batch(label: str, sources: list) -> dict:
     """One pipeline run. Never raises - a crashed source must not stop the loop."""
-    before = db.count_records()
+    try:
+        before = db.count_records()
+    except Exception as exc:
+        log(f"[{label}] db count failed before run: {exc}")
+        return {}
+
     try:
         summary = run_pipeline(sources=sources)
     except Exception as exc:
         log(f"[{label}] run failed: {exc}")
         return {}
-    after = db.count_records()
+        
+    try:
+        after = db.count_records()
+    except Exception as exc:
+        log(f"[{label}] db count failed after run: {exc}")
+        return summary
 
     added = after - before
     fetched = sum(s.get("fetched", 0) for s in summary.values())
