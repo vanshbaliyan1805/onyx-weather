@@ -36,6 +36,10 @@ from config import (
 # to do with the content.
 URL_RE = re.compile(r"(?:https?://|www\.)\s*\S*(?:\s+\S+\.\S+)*", re.IGNORECASE)
 HTML_TAG_RE = re.compile(r"<[^>]+>")
+
+# Repair the damage tag-stripping does to things that were split across tags.
+SPLIT_SCHEME_RE = re.compile(r"(https?://|www\.)\s+", re.IGNORECASE)
+SPLIT_HASHTAG_RE = re.compile(r"#\s+(\w)")
 HASHTAG_RE = re.compile(r"#(\w+)")
 MENTION_RE = re.compile(r"@\w+")
 WHITESPACE_RE = re.compile(r"\s+")
@@ -179,6 +183,14 @@ def clean_text(text: str) -> str:
     text = html.unescape(text)      # &amp; -> &,  &lt; -> <,  &#39; -> '
     text = html.unescape(text)      # again: some feeds double-escape
     text = HTML_TAG_RE.sub(" ", text)
+    # Tags are replaced with a space so words don't run together - but that
+    # space also lands INSIDE things that were split across tags. Mastodon
+    # wraps every link in three spans (<span>https://</span><span>host/pa</span>
+    # <span>th</span>) and every hashtag as #<span>Tag</span>, so tag removal
+    # turns them into "https:// host/path" and "# Tag". Rejoin them before the
+    # URL pass, or a fragmented URL survives it and becomes a class giveaway.
+    text = SPLIT_SCHEME_RE.sub(r"\1", text)
+    text = SPLIT_HASHTAG_RE.sub(r"#\1", text)
     text = URL_RE.sub("", text)
     text = MENTION_RE.sub("", text)
     text = WHITESPACE_RE.sub(" ", text).strip()
