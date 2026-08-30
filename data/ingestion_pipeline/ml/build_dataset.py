@@ -56,6 +56,7 @@ if _PIPELINE not in sys.path:
 import db                                   # noqa: E402
 from cleaning import normalize_record       # noqa: E402
 from generate_synthetic import build_records  # noqa: E402
+from hard_negatives import build_from_real   # noqa: E402
 
 # Sources whose text was written by an actual human. Open-Meteo is excluded
 # on purpose: its rows are one templated sentence with numbers swapped in, and
@@ -73,6 +74,7 @@ FIELDS = [
     "text", "ml_label", "contradiction", "event_category",
     "city", "state", "posted_at", "source", "dedup_hash", "split",
     "measured_precip_mm", "measured_temp_c", "measured_wind_kmh",
+    "corruption",
 ]
 
 
@@ -327,7 +329,12 @@ def main():
     ap.add_argument("--fake-ratio", type=float, default=1.0,
                     help="synthetic rows per genuine row (default 1.0 = balanced)")
     ap.add_argument("--no-match-length", dest="match_length", action="store_false",
-                    help="don't length-match synthetic rows (leaves a length leak)")
+                    help="don't length-match template rows (leaves a length leak)")
+    ap.add_argument("--negatives", choices=["hard", "template", "both"],
+                    default="hard",
+                    help="hard = corrupt real posts (default, honest); "
+                         "template = the old generator (trivially separable, "
+                         "scored 0.994 with logistic regression); both = mix")
     ap.add_argument("--seed", type=int, default=20260830)
     args = ap.parse_args()
 
@@ -366,62 +373,78 @@ def main():
         "measured_precip_mm": "",
         "measured_temp_c": "",
         "measured_wind_kmh": "",
+        "corruption": "",
         "_lat": r["latitude"], "_lon": r["longitude"], "_when": r["posted_at"],
     } for r in human]
 
-    # --- fabricated --------------------------------------------------------
+    # --- fabricated -------------------------------------------------------
     n_fake = int(len(human) * args.fake_ratio)
-    say(f"\n[2/5] generating {n_fake} synthetic rows")
 
-    # Generate a surplus so we can choose which ones to keep. Synthetic text
-    # runs longer than real posts, and a length gap is a leak the model will
-    # find before it reads a single word - it can score well on character
-    # count alone. Over-generating lets us pick a subset whose lengths track
-    # the genuine rows, so length carries no signal.
-    pool = []
-    for raw in build_records(n_fake * (4 if args.match_length else 1),
-                             days_back=7, seed=args.seed):
-        norm = normalize_record(raw)
-        if norm["text_clean"]:
-            pool.append(norm)
+    if args.negatives in ("hard", "both"):
+        say(f"\n[2/5] corrupting real posts into {n_fake} hard negatives")
+        # Each fake is a real post with only its CLAIM changed - a number
+        # inflated past plausibility, a severity word escalated, a forecast's
+        # lead time compressed. Roughly three quarters of the tokens are
+        # identical to the source, so there is no style difference for a model
+        # to exploit; it has to judge whether the claim itself is credible.
+        hard = build_from_real(dataset, seed=args.seed, target=n_fake)
+        for row in hard:
+            row.pop("split", None)
+            dataset.append(row)
+        say(f"  {len(hard)} written from {len(human)} sources")
+        if hard:
+            say("  sample:")
+            for row in hard[:2]:
+                say(f"    [{row['corruption']}] {row['text'][:110]}")
 
-    if args.match_length and pool:
-        targets = sorted(len(d["text"]) for d in dataset)
-        pool.sort(key=lambda n: len(n["text_clean"]))
-        chosen, used = [], set()
-        for want in targets[:n_fake]:
-            # nearest unused synthetic row by length
-            best, best_gap = None, None
-            for idx, cand in enumerate(pool):
-                if idx in used:
-                    continue
-                gap = abs(len(cand["text_clean"]) - want)
-                if best_gap is None or gap < best_gap:
-                    best, best_gap = idx, gap
-                if best_gap == 0:
-                    break
-            if best is not None:
-                used.add(best)
-                chosen.append(pool[best])
-        pool = chosen
-        say(f"  length-matched against the genuine rows "
-            f"({len(pool)} kept from {len(used) and n_fake * 4})")
+    if args.negatives in ("template", "both"):
+        want = n_fake if args.negatives == "template" else n_fake // 3
+        say(f"\n[2b/5] generating {want} template negatives")
+        pool = []
+        for raw in build_records(want * (4 if args.match_length else 1),
+                                 days_back=7, seed=args.seed):
+            norm = normalize_record(raw)
+            if norm["text_clean"]:
+                pool.append(norm)
 
-    for norm in pool[:n_fake]:
-        dataset.append({
-            "text": norm["text_clean"],
-            "ml_label": 1,
-            "contradiction": "",
-            "event_category": norm["event_category_guess"] or "other",
-            "city": norm["city"] or "",
-            "state": norm["state"] or "",
-            "posted_at": norm["posted_at"],
-            "source": "synthetic",
-            "dedup_hash": norm["dedup_hash"] or "",
-            "measured_precip_mm": "", "measured_temp_c": "", "measured_wind_kmh": "",
-            "_lat": None, "_lon": None, "_when": None,
-        })
-    say(f"  {sum(1 for d in dataset if d['ml_label'] == 1)} written")
+        if args.match_length and pool:
+            targets = sorted(len(d["text"]) for d in dataset
+                             if d["ml_label"] == 0)
+            pool.sort(key=lambda n: len(n["text_clean"]))
+            chosen, used = [], set()
+            for target_len in targets[:want]:
+                best, best_gap = None, None
+                for idx, cand in enumerate(pool):
+                    if idx in used:
+                        continue
+                    gap = abs(len(cand["text_clean"]) - target_len)
+                    if best_gap is None or gap < best_gap:
+                        best, best_gap = idx, gap
+                    if best_gap == 0:
+                        break
+                if best is not None:
+                    used.add(best)
+                    chosen.append(pool[best])
+            pool = chosen
+            say(f"  length-matched ({len(pool)} kept)")
+
+        for norm in pool[:want]:
+            dataset.append({
+                "text": norm["text_clean"],
+                "ml_label": 1,
+                "contradiction": "",
+                "event_category": norm["event_category_guess"] or "other",
+                "city": norm["city"] or "",
+                "state": norm["state"] or "",
+                "posted_at": norm["posted_at"],
+                "source": "synthetic",
+                "dedup_hash": norm["dedup_hash"] or "",
+                "measured_precip_mm": "", "measured_temp_c": "",
+                "measured_wind_kmh": "", "corruption": "",
+                "_lat": None, "_lon": None, "_when": None,
+            })
+
+    say(f"  class 1 total: {sum(1 for d in dataset if d['ml_label'] == 1)}")
 
     # --- contradiction -----------------------------------------------------
     if args.no_measurements:
@@ -506,9 +529,9 @@ def main():
         leakage_report(con, "contradiction", say)
 
     say("\n  NOTE: `source` is perfectly separable from ml_label by")
-    say("  construction - every class-1 row is source='synthetic'. That is")
-    say("  expected and unfixable. It is exactly why source, author and")
-    say("  verification_status must be excluded from the features.")
+    say("  construction - every class-1 row is 'corrupted' or 'synthetic'.")
+    say("  That is expected and unfixable. It is exactly why source, author")
+    say("  and verification_status must be excluded from the features.")
 
     # --- write -------------------------------------------------------------
     for d in dataset:
