@@ -8,3 +8,9 @@ env/
 .env.*
 !.env.example
 .pytest_cache/
+
+# Generated datasets - never commit
+*.db
+*.zip
+*.sqlite
+*.sqlite3

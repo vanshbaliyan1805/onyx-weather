@@ -53,10 +53,16 @@ from config import DB_PATH
 load_dotenv(os.path.join(os.path.dirname(__file__), "..", "..", "backend", ".env"))
 
 # Extract database URL from env, removing +asyncpg if present so psycopg2 can use it
-DB_URL = os.environ.get("DATABASE_URL", "postgresql://postgres:Sonam%400100@localhost:5432/weather_db")
+DB_URL = os.environ.get("DATABASE_URL")
+if not DB_URL:
+    raise RuntimeError(
+        "DATABASE_URL is not set. Copy backend/.env.example to backend/.env and "
+        "fill in the connection string. No default is provided on purpose: a silent "
+        "fallback to localhost turns a missing config into a confusing "
+        "'connection refused' several layers deep."
+    )
 if DB_URL.startswith("postgresql+asyncpg://"):
     DB_URL = DB_URL.replace("postgresql+asyncpg://", "postgresql://")
-
 @contextmanager
 def get_conn(*args, **kwargs):
     conn = psycopg2.connect(DB_URL)

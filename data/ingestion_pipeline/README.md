@@ -218,7 +218,8 @@ Every source produces the same 23 columns, so one loader handles all of them:
 | `language` | language code where the source provides one |
 | `dedup_hash` | fingerprint of normalized text + city + date |
 | `is_likely_duplicate` | `1` if this row's `dedup_hash` matched an existing row |
-| `verification_status` | `unverified` / `verified` / `fake` |
+| `verification_status` | `unverified` / `verified` / `fake` — provenance and workflow state |
+| `ml_label` | `0` = genuine, `1` = fabricated — **the supervised training target** |
 | `raw_json` | the full original payload, so nothing is ever lost |
 
 ### Example rows
@@ -268,6 +269,21 @@ classification are still yours to build.
 **`verification_status` is the column to write back into.** Everything defaults
 to `unverified`. The one exception is `openmeteo`, which self-marks `verified`
 because those rows are measurements, not claims.
+
+**`ml_label` is the supervised target, and it is NOT the same column.**
+`verification_status` records *provenance* — `verified` on an Open-Meteo row
+means "this is a measurement", not "this claim was checked and held up".
+Training on it would be label leakage: the model would learn to recognise
+Open-Meteo's sentence template, score ~99%, and detect nothing.
+
+`ml_label` is `0` = genuine, `1` = fabricated. Everything this pipeline
+collects is `0` by definition — it came from a real service. Class `1` rows
+come from a separate synthetic generator.
+
+Caveat worth knowing: `ml_label = 0` means "we did not fabricate this", not
+"this claim is true". A collected social post could still be unchecked
+misinformation. Open-Meteo and RSS rows are safe to treat as genuine; social
+rows are presumed-genuine-but-unverified.
 
 **Open-Meteo rows are ground truth for fake detection.** This is the useful
 part: join a social report's `(city, posted_at)` against the `openmeteo` row for

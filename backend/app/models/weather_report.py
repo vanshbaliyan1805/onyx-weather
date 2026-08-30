@@ -37,6 +37,13 @@ class WeatherReport(Base):
     is_likely_duplicate = Column(Integer, nullable=False, server_default="0")
     verification_status = Column(String, index=True, nullable=False, server_default="unverified")
     raw_json = Column(Text, nullable=True)
+    ml_label = Column(
+        Integer,
+        nullable=False,
+        server_default="0",
+        index=True,
+        comment="Supervised training target: 0 = genuine, 1 = fabricated. Set by ingestion, never by the ML worker.",
+    )
 
     # Backend/ML Fields
     ml_status = Column(Enum(MLStatusEnum), default=MLStatusEnum.pending, server_default="pending", index=True, nullable=False)

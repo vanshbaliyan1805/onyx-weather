@@ -17,6 +17,7 @@ What it does do:
 """
 
 import hashlib
+import html
 import re
 from datetime import datetime, timezone
 
@@ -28,7 +29,13 @@ from config import (
     MAX_CONTENT_AGE_HOURS,
 )
 
-URL_RE = re.compile(r"https?://\S+|www\.\S+")
+# Matches normal URLs AND the space-mangled ones some feeds emit
+# ("https:// english.mathrubhumi.com/news/..."), where a naive \S+ stops at
+# the space and leaves a bare "https://" fragment behind. That fragment then
+# appears in real rows and never in synthetic ones - a leak that has nothing
+# to do with the content.
+URL_RE = re.compile(r"(?:https?://|www\.)\s*\S*(?:\s+\S+\.\S+)*", re.IGNORECASE)
+HTML_TAG_RE = re.compile(r"<[^>]+>")
 HASHTAG_RE = re.compile(r"#(\w+)")
 MENTION_RE = re.compile(r"@\w+")
 WHITESPACE_RE = re.compile(r"\s+")
@@ -98,6 +105,28 @@ def parse_timestamp(value):
     return None
 
 
+def to_utc_iso(value) -> str:
+    """
+    Normalize any timestamp a connector hands us into a single canonical form:
+    ISO-8601, in UTC, with an explicit '+00:00' offset.
+
+    This is the last line of defence before the database. `posted_at` is
+    TIMESTAMPTZ NOT NULL in PostgreSQL, and a naive string there is not an
+    error - Postgres just interprets it in the *server's* timezone (UTC on
+    Supabase) and stores a silently wrong instant. An RSS feed's RFC-2822
+    date would be a hard insert failure. Neither can happen if every row
+    leaves cleaning.py in the same shape.
+
+    Doing it here rather than in each connector means a source added later
+    inherits the guarantee for free. Unparseable input falls back to "now",
+    which is honest for a real-time pipeline and keeps the NOT NULL contract.
+    """
+    dt = parse_timestamp(value)
+    if dt is None:
+        return utc_now_iso()
+    return dt.astimezone(timezone.utc).isoformat()
+
+
 def is_too_old(posted_at) -> bool:
     """
     True if this content is older than MAX_CONTENT_AGE_HOURS.
@@ -124,10 +153,32 @@ def extract_hashtags(text: str) -> list:
 
 
 def clean_text(text: str) -> str:
-    """Strip URLs/mentions, collapse whitespace. Keeps hashtags in place
-    (readable) since the ML teammate may want sentence context intact."""
+    """
+    Produce clean, comparable text for downstream ML and display.
+
+    Removes anything that is an artefact of HOW a record was transported
+    rather than WHAT it says. That distinction matters: RSS entries arrive
+    carrying HTML tags and escaped entities, Mastodon posts arrive as HTML,
+    social text carries URLs. None of that is content, but all of it is
+    perfectly correlated with the source - so a classifier trained on
+    uncleaned text learns to spot '<img' and 'RSS' rather than learning
+    anything about the claim.
+
+    Order matters here:
+      1. unescape entities first  (&amp;lt;p&amp;gt; -> <p>) so step 2 can see them
+      2. strip HTML tags
+      3. strip URLs, including the space-mangled ones some feeds emit
+      4. strip @mentions
+      5. collapse whitespace
+
+    Hashtags are deliberately KEPT - they are content, and the sentence often
+    reads correctly only with them in place.
+    """
     if not text:
         return ""
+    text = html.unescape(text)      # &amp; -> &,  &lt; -> <,  &#39; -> '
+    text = html.unescape(text)      # again: some feeds double-escape
+    text = HTML_TAG_RE.sub(" ", text)
     text = URL_RE.sub("", text)
     text = MENTION_RE.sub("", text)
     text = WHITESPACE_RE.sub(" ", text).strip()
@@ -259,7 +310,7 @@ def normalize_record(raw: dict) -> dict:
     # precipitation/temperature/wind, not from words) may pass it explicitly.
     # Measurement beats keyword-matching, so an explicit value always wins.
     event_category_guess = raw.get("event_category") or guess_event_category(text_raw)
-    posted_at = raw.get("posted_at") or utc_now_iso()
+    posted_at = to_utc_iso(raw.get("posted_at"))
     dedup_hash = make_dedup_hash(text_clean, city, posted_at)
 
     return {
@@ -288,5 +339,10 @@ def normalize_record(raw: dict) -> dict:
         # authoritative sources like Open-Meteo, which mark themselves
         # 'verified' because they are measurements, not claims.
         "verification_status": raw.get("verification_status") or "unverified",
+        # Supervised training target: 0 = genuine, 1 = fabricated.
+        # Everything this pipeline collects is 0 by definition - it came from
+        # a real service. Only a synthetic-data generator sets 1.
+        # NOT the same as verification_status - see the note in db.py.
+        "ml_label": int(raw.get("ml_label", 0)),
         "raw_json": raw.get("extra"),
     }

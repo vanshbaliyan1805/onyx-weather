@@ -25,7 +25,7 @@ Docs: https://open-meteo.com/en/docs
 
 import json
 import os
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from config import (
     OPENMETEO_ENDPOINT,
@@ -105,6 +105,41 @@ def _classify(current: dict) -> tuple:
     return code_category, code_label
 
 
+def _observed_at_utc(current: dict, block: dict) -> str:
+    """
+    Return the observation time as ISO-8601 WITH an explicit UTC offset.
+
+    Open-Meteo honours the `timezone` request parameter and returns
+    current["time"] as a NAIVE local string ("2026-08-28T14:15") plus a
+    top-level "utc_offset_seconds" telling you what that local time means.
+
+    Storing the naive string was fine in SQLite (TEXT is TEXT). It is not fine
+    in PostgreSQL: posted_at is TIMESTAMPTZ NOT NULL, so Postgres would read a
+    naive string in the *server's* timezone (UTC on Supabase) and silently
+    shift every Open-Meteo row by 5.5 hours. No error, just wrong data - which
+    is worse than an error, because nothing would tell us.
+
+    We convert to UTC here rather than at insert time so the value is already
+    unambiguous by the time it reaches cleaning.parse_timestamp(), the
+    scheduler's age filter, and the ML teammate's CSV export.
+    """
+    raw = current.get("time")
+    if not raw:
+        return datetime.now(timezone.utc).isoformat()
+
+    try:
+        dt = datetime.fromisoformat(raw)
+    except (TypeError, ValueError):
+        return datetime.now(timezone.utc).isoformat()
+
+    if dt.tzinfo is None:
+        # Attach the offset Open-Meteo told us this local time was measured in.
+        offset = block.get("utc_offset_seconds", 0) or 0
+        dt = dt.replace(tzinfo=timezone(timedelta(seconds=offset)))
+
+    return dt.astimezone(timezone.utc).isoformat()
+
+
 def _fetch_batch_live(cities: list) -> dict:
     """
     One HTTP call for a batch of cities. Open-Meteo accepts comma-separated
@@ -134,7 +169,7 @@ def _to_raw(city_name: str, state: str, lat: float, lon: float, block: dict) -> 
     units = block.get("current_units", {}) or {}
 
     category, summary = _classify(current)
-    observed_at = current.get("time") or datetime.now(timezone.utc).isoformat()
+    observed_at = _observed_at_utc(current, block)
 
     temp = current.get("temperature_2m")
     precip = current.get("precipitation")
