@@ -98,3 +98,9 @@ Check `http://localhost:8000/docs` to see the Swagger UI.
 - **Do NOT commit passwords or API keys to GitHub.** Use `.env` files locally and Environment Variables in Render/Supabase.
 - **Do NOT change the ingestion database schema.** The data ingestion team writes to the `weather_reports` table using raw SQL. If you change columns in FastAPI, you will break their pipeline!
 - **Run `alembic upgrade head`** whenever you pull new code to ensure your local DB matches the required schema.
+
+## Attribution
+
+Weather data by Open-Meteo.com (CC BY 4.0).
+Reports are cross-referenced against Open-Meteo observational data. We use batching for Open-Meteo API usage to stay within rate limits.
+

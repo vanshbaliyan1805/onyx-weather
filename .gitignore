@@ -9,8 +9,15 @@ env/
 !.env.example
 .pytest_cache/
 
+
 # Generated datasets - never commit
 *.db
 *.zip
 *.sqlite
 *.sqlite3
+
+# Models and raw data
+onyx-model/
+models/models/
+dataset*
+scheduler.log

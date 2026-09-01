@@ -38,6 +38,15 @@ class WeatherReportBase(BaseModel):
     duplicate_probability: Optional[float] = None
     ml_error: Optional[str] = None
 
+    # Hybrid & Measurement Fields
+    verdict: Optional[str] = None
+    hybrid_score: Optional[float] = None
+    hybrid_signals: Optional[Any] = None
+    measurement_check: Optional[str] = None
+    measurement_note: Optional[str] = None
+    measurement_severity: Optional[float] = None
+    measurement_checked_at: Optional[datetime] = None
+
     @field_validator('hashtags', 'media_urls', mode='before')
     @classmethod
     def split_comma_separated(cls, v):
@@ -50,7 +59,7 @@ class WeatherReportBase(BaseModel):
     def parse_bool(cls, v):
         return bool(v)
 
-    @field_validator('raw_json', mode='before')
+    @field_validator('raw_json', 'hybrid_signals', mode='before')
     @classmethod
     def parse_json(cls, v):
         if isinstance(v, str):

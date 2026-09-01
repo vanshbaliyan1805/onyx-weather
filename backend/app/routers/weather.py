@@ -19,6 +19,7 @@ async def get_weather_reports(
     state: Optional[str] = None,
     event: Optional[str] = None,
     verification: Optional[str] = None,
+    verdict: Optional[str] = None,
     duplicate: Optional[bool] = None,
     from_date: Optional[datetime] = None,
     to_date: Optional[datetime] = None,
@@ -37,6 +38,8 @@ async def get_weather_reports(
         conditions.append(WeatherReport.event_category_guess.ilike(f"%{event}%"))
     if verification:
         conditions.append(WeatherReport.verification_status == verification)
+    if verdict:
+        conditions.append(WeatherReport.verdict == verdict)
     if duplicate is not None:
         conditions.append(WeatherReport.is_likely_duplicate == duplicate)
     if from_date:
@@ -74,7 +77,7 @@ async def get_weather_reports(
     )
 
 @router.get("/{report_id}", response_model=WeatherReportResponse)
-async def get_weather_report(report_id: str, db: AsyncSession = Depends(get_db)):
+async def get_weather_report(report_id: int, db: AsyncSession = Depends(get_db)):
     """
     Get a specific weather report by ID.
     """

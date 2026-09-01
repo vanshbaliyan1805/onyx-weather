@@ -100,6 +100,12 @@ def insert_record(record: dict, *args, **kwargs) -> str:
         else:
             record["is_likely_duplicate"] = 0
 
+        # Apply ingestion optimization for ml_status
+        if record.get("source") in ("openmeteo", "rss"):
+            record["ml_status"] = "skipped"
+        else:
+            record["ml_status"] = "pending"
+
         columns = list(record.keys())
         placeholders = ", ".join(["%s"] * len(columns))
         col_list = ", ".join(columns)

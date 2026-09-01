@@ -2,7 +2,7 @@ services:
   - type: web
     name: onyx-weather-backend
     env: python
-    region: singapore # Change as needed
+    region: singapore
     plan: free
     rootDir: backend
     buildCommand: "pip install -r requirements.txt"
@@ -10,8 +10,79 @@ services:
     healthCheckPath: /health
     envVars:
       - key: DATABASE_URL
-        sync: false # Set securely in Render dashboard
+        sync: false
       - key: FRONTEND_ORIGINS
-        value: "*" # Change in Render dashboard if needed for production
+        value: "*"
       - key: ADMIN_API_KEY
-        sync: false # Set securely in Render dashboard
+        sync: false
+
+  - type: cron
+    name: onyx-weather-ingest-social
+    env: python
+    region: singapore
+    plan: free
+    schedule: "0 * * * *"
+    rootDir: data/ingestion_pipeline
+    buildCommand: "pip install -r ../../backend/requirements.txt"
+    startCommand: "python main.py fetch --source mastodon,bluesky,rss,citizen"
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: BLUESKY_IDENTIFIER
+        sync: false
+      - key: BLUESKY_APP_PASSWORD
+        sync: false
+
+  - type: cron
+    name: onyx-weather-ingest-openmeteo
+    env: python
+    region: singapore
+    plan: free
+    schedule: "0 */3 * * *"
+    rootDir: data/ingestion_pipeline
+    buildCommand: "pip install -r ../../backend/requirements.txt"
+    startCommand: "python main.py fetch --source openmeteo"
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+
+  - type: cron
+    name: onyx-weather-verification
+    env: python
+    region: singapore
+    plan: free
+    schedule: "5 * * * *"
+    rootDir: models
+    buildCommand: "pip install -r ../backend/requirements.txt"
+    startCommand: "python verify_worker.py --limit 200"
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+
+  - type: cron
+    name: onyx-weather-ml
+    env: python
+    region: singapore
+    plan: starter
+    schedule: "10 * * * *"
+    rootDir: models
+    buildCommand: "pip install -r ../backend/requirements.txt && pip install -r requirements.txt && python download_model.py"
+    startCommand: "python ml_worker.py --limit 100"
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: MODEL_DOWNLOAD_URL
+        sync: false
+
+  - type: cron
+    name: onyx-weather-hybrid
+    env: python
+    region: singapore
+    plan: free
+    schedule: "15 * * * *"
+    rootDir: models
+    buildCommand: "pip install -r ../backend/requirements.txt"
+    startCommand: "python hybrid_worker.py --limit 200"
+    envVars:
+      - key: DATABASE_URL
+        sync: false
