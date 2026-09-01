@@ -16,6 +16,12 @@ Writes three columns:
 
     measurement_check       'agrees' | 'contradicted' | 'unverifiable'
     measurement_note        readable, e.g. "claims flooding - only 0.4mm in 24h"
+    measurement_severity    0-1, how badly the claim missed. A -12C claim on a
+                            26C day misses by 38 degrees and scores 1.0; a
+                            "heatwave" claim on a 28.5C day barely registers.
+                            The blend uses this instead of a flat 1.0, which is
+                            what lets a decisive contradiction reach 'fake'
+                            without the classifier having to agree.
     measurement_checked_at  when the check ran
 
 This is the second half of the detector. The model reads the sentence and
@@ -67,10 +73,12 @@ def write_results(rows):
                     UPDATE weather_reports
                        SET measurement_check      = %s,
                            measurement_note       = %s,
+                           measurement_severity   = %s,
                            measurement_checked_at = %s
                      WHERE id = %s
                     """,
-                    (r["verdict"], r["note"], now, r["id"]),
+                    (r["verdict"], r["note"], r.get("severity", 0.0),
+                     now, r["id"]),
                 )
 
 
@@ -104,11 +112,11 @@ def main():
                 when = datetime.fromisoformat(when.replace("Z", "+00:00"))
             except ValueError:
                 when = None
-        verdict, note = check_claim(
+        verdict, note, severity = check_claim(
             r["event_category_guess"], history.get(key), when, r["source"],
             r["text_clean"], r.get("author"), r.get("city"),
         )
-        r["verdict"], r["note"] = verdict, note
+        r["verdict"], r["note"], r["severity"] = verdict, note, severity
         counts[verdict] += 1
 
     print()
@@ -119,7 +127,8 @@ def main():
     if flagged:
         print(f"\n=== CONTRADICTED BY MEASUREMENT ({len(flagged)}) ===")
         for r in flagged[:15]:
-            print(f"\n  [{r['source']} / {r['city']}]  {r['note']}")
+            print(f"\n  [{r['source']} / {r['city']}]  {r['note']}"
+                  f"   (severity {r['severity']:.2f})")
             print(f"  {(r['text_clean'] or '')[:150]}")
 
     confirmed = [r for r in rows if r["verdict"] == AGREES]
@@ -137,7 +146,8 @@ def main():
     target = (f"local SQLite ({os.environ['ONYX_LOCAL_DB']})"
               if os.environ.get("ONYX_LOCAL_DB") else "Supabase")
     print(f"\nwrote {len(rows)} checks to {target}")
-    print("  (measurement_check, measurement_note, measurement_checked_at)")
+    print("  (measurement_check, measurement_note, measurement_severity, "
+          "measurement_checked_at)")
 
     from verification import recompute_verdicts
     counts = recompute_verdicts(db)

@@ -34,6 +34,7 @@ import db  # noqa: E402
 COLUMNS = [
     ("measurement_check",      "TEXT"),
     ("measurement_note",       "TEXT"),
+    ("measurement_severity",   "DOUBLE PRECISION"),
     ("measurement_checked_at", "TIMESTAMPTZ"),
     ("hybrid_score",           "DOUBLE PRECISION"),
     ("hybrid_signals",         "TEXT"),

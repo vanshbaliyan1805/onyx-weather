@@ -209,6 +209,18 @@ WIND_ABSOLUTE = 60.0
 # stations and for the gap between a 2m air reading and ground conditions.
 SNOW_MAX_TEMP = 5.0
 
+# How far past the threshold a contradiction has to go before it is decisive
+# rather than merely suspicious. A claim of -12C on a day that never dropped
+# below 26.3C misses by 38 degrees; a "heatwave" claim on a 28.5C day misses
+# by three. Both used to be recorded as the same flat 'contradicted', and the
+# blend then diluted the 38-degree miss with a disagreeing classifier until
+# it came out 'suspect'. Severity is what lets the score tell them apart.
+#
+# Category checks are capped below 1.0 on purpose. "claims flooding, 0.0mm
+# fell" is strong, but no figure was stated and the location may be a whole
+# district - it should never be decisive on its own the way a stated number is.
+CATEGORY_MAX_SEVERITY = 0.85
+
 # A nominal "ordinary" temperature, used only to decide which of several
 # figures in a post is the most extreme one. 25C is unremarkable anywhere in
 # India, so both 45 and -15 read as far from it.
@@ -263,42 +275,64 @@ def _extremity(value, kind):
     return value
 
 
+def _sev(ratio_over_threshold, span=2.0):
+    """
+    Map "how many times past the threshold" onto 0-1.
+
+    At the threshold itself severity is 0 - the claim only just qualifies as
+    contradicted and deserves a human glance, not a verdict. `span` past it
+    is 1.0, decisive.
+    """
+    v = (ratio_over_threshold - 1.0) / span
+    return 0.0 if v < 0 else (1.0 if v > 1 else v)
+
+
 def _magnitude_verdict(claimed, kind, m):
     """
-    Compare an asserted number against the measurement. Returns (verdict, note)
-    or None when the claim is not far enough out to be worth calling.
+    Compare an asserted number against the measurement. Returns
+    (verdict, note, severity) or None when the claim is not far enough out
+    to be worth calling.
     """
     if kind == "rain":
         actual = m["precip"]
         if actual is None:
             return None
         if claimed >= max(actual * RAIN_RATIO, actual + RAIN_ABSOLUTE):
+            ratio = claimed / max(actual, 0.1)
             factor = f"{claimed / actual:.0f}x" if actual > 0.05 else "none at all"
-            return CONTRADICTED, (f"claims {claimed:g}mm - only {actual:g}mm "
-                                  f"recorded in 24h ({factor})")
+            return (CONTRADICTED,
+                    f"claims {claimed:g}mm - only {actual:g}mm recorded in 24h ({factor})",
+                    _sev(ratio / RAIN_RATIO, span=3.0))
     elif kind == "temp":
         actual = m["temp"]
         if actual is None:
             return None
         if claimed >= actual + TEMP_MARGIN:
-            return CONTRADICTED, (f"claims {claimed:g}C - peak was "
-                                  f"{actual:g}C in 24h")
-        # The cold direction. Every comparison in this module used to ask
-        # only "is the claim too high", so "-15C in Mumbai" sailed through:
-        # it is not hotter than the peak, therefore nothing to report. A
-        # claim far BELOW the coldest hour is exactly as false.
+            gap = claimed - actual
+            return (CONTRADICTED,
+                    f"claims {claimed:g}C - peak was {actual:g}C in 24h",
+                    _sev(gap / TEMP_MARGIN))
+        # The cold direction. Every comparison here used to ask only "is the
+        # claim too high", so "-15C in Mumbai" sailed through: not hotter
+        # than the peak, therefore nothing to report. A claim far BELOW the
+        # coldest hour is exactly as false.
         low = m.get("temp_min")
         if low is not None and claimed <= low - TEMP_MARGIN:
-            return CONTRADICTED, (f"claims {claimed:g}C - lowest was "
-                                  f"{low:g}C in 24h")
+            gap = low - claimed
+            return (CONTRADICTED,
+                    f"claims {claimed:g}C - lowest was {low:g}C in 24h",
+                    _sev(gap / TEMP_MARGIN))
     elif kind == "wind":
         actual = m["wind"]
         if actual is None:
             return None
         if claimed >= max(actual * WIND_RATIO, actual + WIND_ABSOLUTE):
-            return CONTRADICTED, (f"claims {claimed:g}km/h - peak was "
-                                  f"{actual:g}km/h in 24h")
+            ratio = claimed / max(actual, 0.5)
+            return (CONTRADICTED,
+                    f"claims {claimed:g}km/h - peak was {actual:g}km/h in 24h",
+                    _sev(ratio / WIND_RATIO, span=3.0))
     return None
+
 
 def fetch_history(coords: list, days: int = 7) -> dict:
     """
@@ -379,7 +413,12 @@ def _measure(series: dict, when: datetime):
 def check_claim(category: str, series: dict, when: datetime, source: str = None,
                 text: str = None, author: str = None, city: str = None):
     """
-    Returns (verdict, note).
+    Returns (verdict, note, severity).
+
+    severity is 0-1 and only meaningful when the verdict is 'contradicted':
+    0 means the claim only just crossed the threshold, 1 means it missed by
+    so much that no other signal should be able to argue it back. Everything
+    else returns 0.0.
 
     Two passes, in order:
 
@@ -387,24 +426,23 @@ def check_claim(category: str, series: dict, when: datetime, source: str = None,
          measurement. This is the sharp check - "claims 340mm, 2.9mm fell"
          is specific, damning and anyone can verify it.
       2. Otherwise fall back to comparing the CATEGORY against thresholds,
-         which is blunter but works on posts with no figures in them.
-
-    verdict  'agrees' | 'contradicted' | 'unverifiable'
+         which is blunter but works on posts with no figures in them, and is
+         capped below decisive for exactly that reason.
     """
     if source is not None and source not in CHECKABLE_SOURCES:
-        return UNVERIFIABLE, "news source - publication time is not event time"
+        return UNVERIFIABLE, "news source - publication time is not event time", 0.0
     if looks_like_relay(author):
-        return UNVERIFIABLE, (f"@{author} is a news relay - post time is not "
-                              f"event time")
+        return UNVERIFIABLE, f"@{author} is a news relay - post time is not event time", 0.0
     if city and city.strip().lower() in REGION_PLACES:
-        return UNVERIFIABLE, (f"'{city}' is a region, too coarse to check "
-                              f"against a single measurement point")
+        return (UNVERIFIABLE,
+                f"'{city}' is a region, too coarse to check against a single "
+                f"measurement point", 0.0)
     if not series or not when:
-        return UNVERIFIABLE, "no measurements for this location"
+        return UNVERIFIABLE, "no measurements for this location", 0.0
 
     m = _measure(series, when)
     if m is None:
-        return UNVERIFIABLE, "no readings in the 24h before this post"
+        return UNVERIFIABLE, "no readings in the 24h before this post", 0.0
 
     # Pass 1 - the number the post actually states, if it states one. This
     # runs before the category lookup so a wild figure is caught even in a
@@ -418,24 +456,27 @@ def check_claim(category: str, series: dict, when: datetime, source: str = None,
     # Snow is not a threshold question, it is a physics question, so it is
     # handled before the threshold table. A post can claim snow with no
     # figures at all - "heavy snowfall in Mumbai tonight" - and the number
-    # check above has nothing to bite on.
+    # check above has nothing to bite on. Treated as decisive because air
+    # temperature is a direct measurement, not a proxy.
     if category == "snow":
         low = m.get("temp_min")
         if low is None:
-            return UNVERIFIABLE, "claims snowfall - no temperature readings"
+            return UNVERIFIABLE, "claims snowfall - no temperature readings", 0.0
         if low > SNOW_MAX_TEMP:
-            return CONTRADICTED, (f"claims snowfall - lowest temperature was "
-                                  f"{low:g}C in 24h, never close to freezing")
-        return UNVERIFIABLE, f"claims snowfall - lowest was {low:g}C"
+            return (CONTRADICTED,
+                    f"claims snowfall - lowest temperature was {low:g}C in 24h, "
+                    f"never close to freezing",
+                    _sev(low / SNOW_MAX_TEMP, span=1.0))
+        return UNVERIFIABLE, f"claims snowfall - lowest was {low:g}C", 0.0
 
     # Pass 2 - category thresholds.
     rule = RULES.get(category)
     if rule is None:
-        return UNVERIFIABLE, f"'{category}' makes no measurable claim"
+        return UNVERIFIABLE, f"'{category}' makes no measurable claim", 0.0
 
     value = m[rule["field"]]
     if value is None:
-        return UNVERIFIABLE, "measurement unavailable"
+        return UNVERIFIABLE, "measurement unavailable", 0.0
 
     unit = rule["unit"]
     window = " in 24h" if rule["field"] == "precip" else " (24h peak)"
@@ -444,10 +485,16 @@ def check_claim(category: str, series: dict, when: datetime, source: str = None,
     # Thunderstorms are visible in the WMO code directly (95/96/99), which is
     # better evidence than rainfall alone.
     if category == "thunderstorm" and any(cd in (95, 96, 99) for cd in m["codes"]):
-        return AGREES, f"claims thunderstorm - storm recorded, {shown}"
+        return AGREES, f"claims thunderstorm - storm recorded, {shown}", 0.0
 
     if value < rule["denies"]:
-        return CONTRADICTED, f"claims {category} - only {shown} recorded"
+        # How far short of the threshold, scaled to the cap. Zero rainfall
+        # against a flooding claim earns the full cap; 0.9mm against a 1.0mm
+        # threshold earns almost nothing.
+        short = 1.0 - (value / rule["denies"]) if rule["denies"] else 1.0
+        return (CONTRADICTED,
+                f"claims {category} - only {shown} recorded",
+                round(CATEGORY_MAX_SEVERITY * max(0.0, min(1.0, short)), 4))
     if value >= rule["confirms"]:
-        return AGREES, f"claims {category} - {shown} recorded"
-    return UNVERIFIABLE, f"claims {category} - {shown}, too close to call"
+        return AGREES, f"claims {category} - {shown} recorded", 0.0
+    return UNVERIFIABLE, f"claims {category} - {shown}, too close to call", 0.0

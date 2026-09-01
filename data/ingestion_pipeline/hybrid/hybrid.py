@@ -43,10 +43,17 @@ WEIGHTS = {
 # ran and could not judge, which is not weak evidence of innocence, it is no
 # evidence at all.
 MEASUREMENT_VALUE = {
-    "contradicted":  1.0,
+    "contradicted":  1.0,      # fallback when no severity was recorded
     "agrees":        0.0,
     "unverifiable":  None,
 }
+
+# Above this, the measurement is not evidence to be weighed against the
+# classifier - it is an answer. "-12C in Delhi" on a day that never dropped
+# below 26.3C missed by 38 degrees; blending that with a model that scored
+# 0.01 produced 0.47 and a verdict of 'suspect', which understates a
+# measurement disagreeing by four and a half margins.
+DECISIVE_MEASUREMENT = 0.95
 
 FAKE_AT = 0.70
 SUSPECT_AT = 0.40
@@ -59,7 +66,7 @@ IMPOSSIBLE_FLOOR = 0.85
 
 
 def hybrid_score(ml=None, measurement_check=None, text=None, author=None,
-                 source=None):
+                 source=None, severity=None):
     """
     Returns (score or None, breakdown dict).
 
@@ -76,9 +83,15 @@ def hybrid_score(ml=None, measurement_check=None, text=None, author=None,
 
     mv = MEASUREMENT_VALUE.get(measurement_check)
     if mv is not None:
+        # Severity grades HOW badly the claim missed. Rows checked before the
+        # severity column existed fall back to the flat 1.0.
+        if measurement_check == "contradicted" and severity is not None:
+            mv = float(severity)
         signals["measurement"] = {
-            "value": mv,
-            "note": ("measurements contradict the claim" if mv >= 1.0
+            "value": round(mv, 4),
+            "note": (f"measurements contradict the claim"
+                     + (f" (severity {mv:.2f})" if mv > 0 else "")
+                     if measurement_check == "contradicted"
                      else "measurements agree with the claim"),
         }
 
@@ -110,6 +123,8 @@ def hybrid_score(ml=None, measurement_check=None, text=None, author=None,
     # a self-evidently false post came out 'ok'. When physics reaches 1.0 the
     # score is floored instead of averaged.
     if signals.get("physics", {}).get("value", 0) >= 1.0:
+        score = max(score, IMPOSSIBLE_FLOOR)
+    if signals.get("measurement", {}).get("value", 0) >= DECISIVE_MEASUREMENT:
         score = max(score, IMPOSSIBLE_FLOOR)
 
     contributions = {

@@ -25,3 +25,11 @@ Thumbs.db
 
 # Collector run log (generated)
 scheduler.log
+
+ml/dataset.csv
+ml/report.txt
+ml/*.pkl
+
+*.bak
+*.db
+weather_local.db

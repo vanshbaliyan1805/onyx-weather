@@ -36,6 +36,7 @@ import db                                             # noqa: E402
 from hybrid import hybrid_score, to_json, explain      # noqa: E402
 
 NEW_COLUMNS = [
+    ("measurement_severity", "DOUBLE PRECISION"),
     ("hybrid_score", "DOUBLE PRECISION"),
     ("hybrid_signals", "TEXT"),
     ("verdict", "TEXT"),
@@ -62,7 +63,7 @@ def fetch(limit, do_all):
     where = "" if do_all else "WHERE hybrid_score IS NULL"
     sql = f"""
         SELECT id, text_clean, author, source, fake_probability,
-               measurement_check
+               measurement_check, measurement_severity
         FROM weather_reports
         {where}
         ORDER BY id DESC
@@ -91,9 +92,9 @@ def main():
     print(f"{len(rows)} rows to blend\n")
 
     updates, counts, flagged = [], {}, []
-    for rid, text, author, source, ml, mcheck in rows:
+    for rid, text, author, source, ml, mcheck, sev in rows:
         score, breakdown = hybrid_score(
-            ml=ml, measurement_check=mcheck,
+            ml=ml, measurement_check=mcheck, severity=sev,
             text=text, author=author, source=source)
         v = breakdown["verdict"]
         counts[v] = counts.get(v, 0) + 1
