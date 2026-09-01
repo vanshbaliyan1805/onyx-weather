@@ -1,0 +1,148 @@
+"""
+verify_worker.py
+----------------
+Cross-references every checkable post against what the weather actually did,
+and writes the verdict into the database.
+
+    python verify_worker.py                # check everything unchecked
+    python verify_worker.py --limit 50
+    python verify_worker.py --dry-run      # print, write nothing
+    python verify_worker.py --all          # re-check rows already checked
+
+Runs against whichever database db.py is pointing at - Supabase, or the local
+SQLite file when ONYX_LOCAL_DB is set.
+
+Writes three columns:
+
+    measurement_check       'agrees' | 'contradicted' | 'unverifiable'
+    measurement_note        readable, e.g. "claims flooding - only 0.4mm in 24h"
+    measurement_checked_at  when the check ran
+
+This is the second half of the detector. The model reads the sentence and
+judges how it sounds; this ignores the writing entirely and asks whether the
+world agrees. A calm, plausible lie gets past the first and is caught by the
+second.
+"""
+
+import argparse
+import os
+import sys
+from datetime import datetime, timezone
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+import db                                              # noqa: E402
+from verification import (fetch_history, check_claim,  # noqa: E402
+                          CHECKABLE_SOURCES, AGREES,
+                          CONTRADICTED, UNVERIFIABLE)
+
+
+def fetch_rows(limit, recheck_all):
+    sources = "', '".join(sorted(CHECKABLE_SOURCES))
+    where = [f"source IN ('{sources}')", "latitude IS NOT NULL"]
+    if not recheck_all:
+        where.append("measurement_check IS NULL")
+    sql = f"""
+        SELECT id, source, city, state, latitude, longitude,
+               posted_at, event_category_guess, text_clean, author
+        FROM weather_reports
+        WHERE {' AND '.join(where)}
+        ORDER BY posted_at DESC
+        {f'LIMIT {int(limit)}' if limit else ''}
+    """
+    with db.get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(sql)
+            cols = [d[0] for d in cur.description]
+            return [dict(zip(cols, r)) for r in cur.fetchall()]
+
+
+def write_results(rows):
+    now = datetime.now(timezone.utc)
+    with db.get_conn() as conn:
+        with conn.cursor() as cur:
+            for r in rows:
+                cur.execute(
+                    """
+                    UPDATE weather_reports
+                       SET measurement_check      = %s,
+                           measurement_note       = %s,
+                           measurement_checked_at = %s
+                     WHERE id = %s
+                    """,
+                    (r["verdict"], r["note"], now, r["id"]),
+                )
+
+
+def main():
+    ap = argparse.ArgumentParser(description="Cross-reference claims against measurements")
+    ap.add_argument("--limit", type=int, default=None)
+    ap.add_argument("--all", action="store_true", help="re-check rows already checked")
+    ap.add_argument("--dry-run", action="store_true")
+    args = ap.parse_args()
+
+    rows = fetch_rows(args.limit, args.all)
+    if not rows:
+        print("nothing to check.")
+        print(f"(only {', '.join(sorted(CHECKABLE_SOURCES))} rows with a "
+              f"resolved location are checkable)")
+        return
+
+    print(f"{len(rows)} rows to check")
+
+    coords = sorted({(round(r["latitude"], 3), round(r["longitude"], 3))
+                     for r in rows})
+    print(f"{len(coords)} distinct locations to look up")
+    history = fetch_history(coords)
+
+    counts = {AGREES: 0, CONTRADICTED: 0, UNVERIFIABLE: 0}
+    for r in rows:
+        key = (round(r["latitude"], 3), round(r["longitude"], 3))
+        when = r["posted_at"]
+        if isinstance(when, str):
+            try:
+                when = datetime.fromisoformat(when.replace("Z", "+00:00"))
+            except ValueError:
+                when = None
+        verdict, note = check_claim(
+            r["event_category_guess"], history.get(key), when, r["source"],
+            r["text_clean"], r.get("author"), r.get("city"),
+        )
+        r["verdict"], r["note"] = verdict, note
+        counts[verdict] += 1
+
+    print()
+    for k in (CONTRADICTED, AGREES, UNVERIFIABLE):
+        print(f"  {k:<14} {counts[k]}")
+
+    flagged = [r for r in rows if r["verdict"] == CONTRADICTED]
+    if flagged:
+        print(f"\n=== CONTRADICTED BY MEASUREMENT ({len(flagged)}) ===")
+        for r in flagged[:15]:
+            print(f"\n  [{r['source']} / {r['city']}]  {r['note']}")
+            print(f"  {(r['text_clean'] or '')[:150]}")
+
+    confirmed = [r for r in rows if r["verdict"] == AGREES]
+    if confirmed:
+        print(f"\n=== SUPPORTED BY MEASUREMENT ({len(confirmed)}) ===")
+        for r in confirmed[:5]:
+            print(f"  [{r['city']}]  {r['note']}")
+            print(f"    {(r['text_clean'] or '')[:120]}")
+
+    if args.dry_run:
+        print("\ndry run - nothing written.")
+        return
+
+    write_results(rows)
+    target = (f"local SQLite ({os.environ['ONYX_LOCAL_DB']})"
+              if os.environ.get("ONYX_LOCAL_DB") else "Supabase")
+    print(f"\nwrote {len(rows)} checks to {target}")
+    print("  (measurement_check, measurement_note, measurement_checked_at)")
+
+    from verification import recompute_verdicts
+    counts = recompute_verdicts(db)
+    print("\nverdict column:", counts)
+
+
+if __name__ == "__main__":
+    main()

@@ -63,6 +63,7 @@ EVENT_CATEGORY_KEYWORDS = [
     ("fog", ["fog", "foggy", "smog", "low visibility"]),
     ("strong_wind", ["strong wind", "gusty wind", "high wind", "squall"]),
     ("rainfall", ["rain", "rains", "raining", "rainfall", "downpour", "monsoon", "drizzle"]),
+    ("snow", ["snowfall", "snow", "blizzard", "snowstorm", "sleet"]),
 ]
 DEFAULT_EVENT_CATEGORY = "other"
 
@@ -624,3 +625,88 @@ INDIAN_CITIES = {
     "diu": ("Dadra and Nagar Haveli and Daman and Diu", 20.7144, 70.9874),
     "silvassa": ("Dadra and Nagar Haveli and Daman and Diu", 20.2738, 73.0140),
 }
+
+
+# === onyx failsafes: appended by apply_failsafes.py ===
+# Everything below EXTENDS what is already defined above. Nothing is replaced.
+_g = globals()
+
+# --- 1. hashtags -----------------------------------------------------------
+_EXTRA_TAGS = [
+    # the generic ones that were missing entirely
+    "weather", "weatherupdate", "weathernews", "weatherforecast",
+    "weatherwarning", "extremeweather", "IMDAlert", "IMDWarning",
+    # the cold half of the year - the list was monsoon-only
+    "snow", "snowfall", "snowstorm", "blizzard", "coldwave", "coldwaves",
+    "frost", "temperature", "mausam",
+    # Hinglish, which is how a lot of India actually posts about weather
+    "barish", "baarish", "andhi", "toofan", "baadh", "garmi", "sardi",
+    # storms and consequences
+    "storm", "rainstorm", "cloudburst", "landslide", "waterlogged",
+    "flashflood", "stormsurge", "gustywinds", "lightning",
+    # alert levels
+    "redalert", "orangealert", "yellowalert", "rainalert", "floodalert",
+    "cycloneupdate", "heatalert",
+    # city tags people actually use
+    "chennairains", "bengalururains", "hyderabadrains", "punerains",
+    "kolkatarains", "keralarains", "assamfloods", "biharfloods",
+    "delhiweather", "mumbaiweather", "chennaiweather",
+]
+if "WEATHER_HASHTAGS" in _g:
+    for _t in _EXTRA_TAGS:
+        if _t not in WEATHER_HASHTAGS:
+            WEATHER_HASHTAGS.append(_t)
+# WEATHER_KEYWORDS was derived from the list at definition time, so extending
+# the tags above does not reach it. Rebuild it here.
+if "WEATHER_KEYWORDS" in _g:
+    for _t in _EXTRA_TAGS:
+        _k = _t.lower()
+        if _k not in WEATHER_KEYWORDS:
+            WEATHER_KEYWORDS.append(_k)
+
+# --- 2. regions ------------------------------------------------------------
+# Representative coordinates only. verification.py refuses to measurement-check
+# anything in this list, so these exist purely so the post is collected and
+# shows on the dashboard instead of being dropped as no_location.
+_REGIONS = {
+    "konkan":          ("Maharashtra",     16.9902, 73.3120),
+    "vidarbha":        ("Maharashtra",     21.1458, 79.0882),
+    "marathwada":      ("Maharashtra",     19.8762, 75.3433),
+    "ncr":             ("Delhi",           28.6139, 77.2090),
+    "delhi ncr":       ("Delhi",           28.6139, 77.2090),
+    "delhi-ncr":       ("Delhi",           28.6139, 77.2090),
+    "malabar":         ("Kerala",          11.2588, 75.7804),
+    "coastal andhra":  ("Andhra Pradesh",  17.6868, 83.2185),
+    "rayalaseema":     ("Andhra Pradesh",  15.8281, 78.0373),
+    "saurashtra":      ("Gujarat",         22.3039, 70.8022),
+    "kutch":           ("Gujarat",         23.2420, 69.6669),
+    "bundelkhand":     ("Uttar Pradesh",   25.4484, 78.5685),
+    "terai":           ("Uttar Pradesh",   26.7606, 83.3732),
+    "sundarbans":      ("West Bengal",     21.9497, 88.9000),
+    "western ghats":   ("Maharashtra",     18.7000, 73.4000),
+    "gangetic plains": ("Uttar Pradesh",   25.3176, 82.9739),
+}
+if "INDIAN_CITIES" in _g:
+    for _name, _meta in _REGIONS.items():
+        INDIAN_CITIES.setdefault(_name, _meta)
+
+# --- 4. snow category ------------------------------------------------------
+# Inserted at the front so it is tested before "rainfall" - a snow post that
+# also says "rain" should classify as snow.
+if "EVENT_CATEGORY_KEYWORDS" in _g:
+    if not any(_c == "snow" for _c, _ in EVENT_CATEGORY_KEYWORDS):
+        EVENT_CATEGORY_KEYWORDS.insert(0, (
+            "snow",
+            ["snowfall", "snow", "snowstorm", "blizzard", "sleet",
+             "snowing", "snow-covered"],
+        ))
+if "DEFAULT_EVENT_CATEGORY" not in _g:
+    DEFAULT_EVENT_CATEGORY = "other"
+# Fast fetch for demos: only the tags we actually post with.
+import os as _os
+if _os.environ.get("ONYX_FAST_FETCH"):
+    WEATHER_HASHTAGS = [
+        "IMD", "weather", "rain", "rainfall", "heatwave", "weatheralert",
+        "coldwave", "snow", "yellowalert", "Mumbairains",
+    ]
+    

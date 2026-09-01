@@ -62,7 +62,7 @@ _STATE_LOOKUP = {s.lower(): s for s in INDIAN_STATES}
 # second, unambiguous Indian place name.
 AMBIGUOUS_PLACES = {
     "gaya", "mandi", "salem", "sagar", "hassan", "pali", "puri", "kota",
-    "daman", "diu", "leh", "vasco", "satara", "bastar", "goa", "mathura",
+    "daman", "diu", "leh", "vasco", "satara", "bastar", "goa", "mathura","salt lake"
 }
 
 # Words that independently establish the text is about India.
@@ -358,3 +358,31 @@ def normalize_record(raw: dict) -> dict:
         "ml_label": int(raw.get("ml_label", 0)),
         "raw_json": raw.get("extra"),
     }
+
+
+# === onyx failsafes: appended by apply_failsafes.py ===
+# Place names shared with somewhere else in the world. Being in this set does
+# not block a name - it means the name alone is not enough, and something else
+# in the post has to corroborate that we are in India.
+#
+# Salt Lake was the one that bit: eight National Weather Service flash-flood
+# alerts from Salt Lake City, Utah were filed under Salt Lake, West Bengal and
+# then measurement-checked against Kolkata. Every entry below is a place where
+# the same thing can happen.
+_EXTRA_AMBIGUOUS = {
+    "salt lake", "salem", "kingston", "victoria", "richmond", "oxford",
+    "cambridge", "springfield", "aurora", "columbia", "jackson", "franklin",
+    "georgetown", "wellington", "hamilton", "london", "birmingham", "perth",
+    "newcastle", "windsor", "kent", "surrey", "york", "dover", "bristol",
+    "gloucester", "lincoln", "warren", "clinton", "madison", "monroe",
+    "arlington", "burlington", "chester", "durham", "essex", "exeter",
+    "greenwich", "hastings", "ipswich", "norwich", "preston", "reading",
+    "rochester", "somerset", "stratford", "sunderland", "sussex", "wexford",
+}
+try:
+    AMBIGUOUS_PLACES.update(_EXTRA_AMBIGUOUS)
+except NameError:
+    AMBIGUOUS_PLACES = set(_EXTRA_AMBIGUOUS)
+except AttributeError:
+    # Defined as a list or tuple rather than a set.
+    AMBIGUOUS_PLACES = set(AMBIGUOUS_PLACES) | _EXTRA_AMBIGUOUS
