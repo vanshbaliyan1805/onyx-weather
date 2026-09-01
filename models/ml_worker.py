@@ -24,7 +24,7 @@ from dotenv import load_dotenv
 # Paths
 # ---------------------------------------------------------------------------
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-MODEL_PATH = os.environ.get("MODEL_PATH", os.path.join(SCRIPT_DIR, "..", "onyx-model"))
+MODEL_PATH = os.environ.get("MODEL_PATH", os.path.join(SCRIPT_DIR, "downloaded_model"))
 ENV_PATH = os.path.join(SCRIPT_DIR, "..", "backend", ".env")
 
 # ---------------------------------------------------------------------------

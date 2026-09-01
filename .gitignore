@@ -19,5 +19,8 @@ env/
 # Models and raw data
 onyx-model/
 models/models/
+models/downloaded_model/
+*.safetensors
+*.bin
 dataset*
 scheduler.log

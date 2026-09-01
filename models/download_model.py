@@ -2,67 +2,79 @@
 download_model.py
 -----------------
 Ensures the DistilBERT model is downloaded before the ML worker starts.
-This keeps the 240MB model out of the Git repository.
+Downloads the production model from the private Hugging Face Hub repository.
 """
 
 import os
 import sys
-import urllib.request
-import zipfile
 
+# Deterministic local runtime directory, placed safely in models/downloaded_model
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-MODEL_DIR = os.path.join(SCRIPT_DIR, "..", "onyx-model")
-MODEL_FILE = os.path.join(MODEL_DIR, "model.safetensors")
+MODEL_DIR = os.path.join(SCRIPT_DIR, "downloaded_model")
+REPO_ID = "VD-Nagar/onyx-weather-model"
 
 def check_model():
-    if os.path.exists(MODEL_FILE):
-        size_mb = os.path.getsize(MODEL_FILE) / (1024 * 1024)
-        if size_mb > 100:
-            print(f"Model already exists ({size_mb:.1f} MB). Skipping download.")
-            return True
-        else:
-            print(f"Warning: model.safetensors is suspiciously small ({size_mb:.1f} MB). Redownloading...")
-    return False
+    """Verify if the required model files are present locally."""
+    if not os.path.isdir(MODEL_DIR):
+        return False
+
+    required_files = [
+        "config.json",
+        "model.safetensors",
+        "tokenizer.json",
+        "tokenizer_config.json"
+    ]
+
+    for f in required_files:
+        file_path = os.path.join(MODEL_DIR, f)
+        if not os.path.exists(file_path):
+            return False
+
+    # Additional size check for model.safetensors
+    safetensors_path = os.path.join(MODEL_DIR, "model.safetensors")
+    size_mb = os.path.getsize(safetensors_path) / (1024 * 1024)
+    if size_mb < 100:
+        print(f"Warning: model.safetensors is suspiciously small ({size_mb:.1f} MB). Redownloading...")
+        return False
+
+    print(f"Model already exists and verified ({size_mb:.1f} MB). Skipping download.")
+    return True
 
 def download_model():
     if check_model():
         return
 
-    url = os.environ.get("MODEL_DOWNLOAD_URL")
-    if not url:
-        print("ERROR: MODEL_DOWNLOAD_URL environment variable is not set!")
-        print("Since the onyx-model is not in the Git repository, you MUST provide")
-        print("a download URL to a zip file containing the model to run the ML worker.")
+    hf_token = os.environ.get("HF_TOKEN")
+    if not hf_token:
+        print("ERROR: HF_TOKEN environment variable is not set!")
+        print(f"You MUST provide a valid Hugging Face token to download the private repository: {REPO_ID}")
         sys.exit(1)
 
-    print(f"Downloading model from {url}...")
-    zip_path = os.path.join(SCRIPT_DIR, "..", "onyx-model.zip")
+    print(f"Downloading model from Hugging Face Hub: {REPO_ID}...")
     
     try:
-        urllib.request.urlretrieve(url, zip_path)
-    except Exception as e:
-        print(f"ERROR: Failed to download model: {e}")
+        from huggingface_hub import snapshot_download
+    except ImportError:
+        print("ERROR: huggingface_hub is not installed. Please run 'pip install huggingface_hub'.")
         sys.exit(1)
 
-    print("Extracting model...")
-    os.makedirs(MODEL_DIR, exist_ok=True)
     try:
-        with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-            zip_ref.extractall(MODEL_DIR)
+        snapshot_download(
+            repo_id=REPO_ID,
+            local_dir=MODEL_DIR,
+            token=hf_token,
+            # Only download the necessary inference files, skipping READMEs etc. if desired,
+            # but we can just download everything.
+            ignore_patterns=["*.md", ".git*"]
+        )
     except Exception as e:
-        print(f"ERROR: Failed to extract model zip: {e}")
+        print(f"ERROR: Failed to download model from Hugging Face: {e}")
         sys.exit(1)
-        
-    # Clean up zip
-    try:
-        os.remove(zip_path)
-    except:
-        pass
 
     if check_model():
         print("Model downloaded and verified successfully.")
     else:
-        print("ERROR: Download and extraction finished, but model.safetensors is missing or too small!")
+        print("ERROR: Download finished, but required model files are missing or too small!")
         sys.exit(1)
 
 if __name__ == "__main__":
