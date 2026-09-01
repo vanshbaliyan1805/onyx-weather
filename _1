@@ -1,0 +1,644 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Monsoon Watch — Weather Event Reports, India</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo+Narrow:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<style>
+  :root{
+    --bg: #0A121C;
+    --panel: #101B28;
+    --panel-alt: #0D1720;
+    --hairline: #22323F;
+    --hairline-soft: #182530;
+    --text: #E7EEF3;
+    --muted: #7C93A3;
+    --dim: #4E6273;
+    --red: #E2604C;
+    --orange: #E2913A;
+    --yellow: #D9BE3F;
+    --green: #4AA876;
+    --cyan: #5CC8E0;
+    --font-display: 'Archivo Narrow', sans-serif;
+    --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
+    --font-ui: 'Inter', system-ui, sans-serif;
+  }
+
+  *{ box-sizing: border-box; }
+  html, body{ margin:0; padding:0; }
+  body{
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-ui);
+    -webkit-font-smoothing: antialiased;
+    min-height: 100vh;
+  }
+  ::selection{ background: var(--cyan); color: #06121A; }
+
+  a{ color: var(--cyan); text-decoration: none; }
+  a:hover{ text-decoration: underline; }
+
+  .wrap{
+    max-width: 1180px;
+    margin: 0 auto;
+    padding: 28px 20px 64px;
+  }
+
+  /* ---------- Masthead ---------- */
+  .masthead{
+    display:flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    border-bottom: 2px solid var(--text);
+    padding-bottom: 14px;
+    margin-bottom: 4px;
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+  .masthead h1{
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: 34px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    margin: 0;
+    line-height: 1;
+  }
+  .masthead h1 span{ color: var(--cyan); }
+  .masthead .meta{
+    text-align: right;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--muted);
+    line-height: 1.5;
+  }
+  .masthead .meta strong{ color: var(--text); font-weight: 500; }
+  .subline{
+    display:flex;
+    justify-content: space-between;
+    align-items:center;
+    padding: 8px 0 18px;
+    border-bottom: 1px solid var(--hairline);
+    margin-bottom: 18px;
+    font-size: 13px;
+    color: var(--muted);
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .subline .tag{
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.03em;
+    color: var(--dim);
+  }
+  .live-dot{
+    display:inline-block;
+    width:7px; height:7px;
+    border-radius:50%;
+    background: var(--green);
+    margin-right:6px;
+    box-shadow: 0 0 0 0 rgba(74,168,118,0.6);
+    animation: pulse 2s infinite;
+    vertical-align:1px;
+  }
+  @keyframes pulse{
+    0%{ box-shadow: 0 0 0 0 rgba(74,168,118,0.45); }
+    70%{ box-shadow: 0 0 0 6px rgba(74,168,118,0); }
+    100%{ box-shadow: 0 0 0 0 rgba(74,168,118,0); }
+  }
+
+  /* ---------- Ticker (station readouts) ---------- */
+  .ticker-shell{
+    border: 1px solid var(--hairline);
+    background: var(--panel);
+    margin-bottom: 20px;
+    overflow: hidden;
+    position: relative;
+  }
+  .ticker-label{
+    position:absolute; top:0; left:0; bottom:0;
+    display:flex; align-items:center;
+    padding: 0 12px;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    color: var(--bg);
+    background: var(--cyan);
+    z-index: 2;
+    text-transform: uppercase;
+  }
+  .ticker-track{
+    display:flex;
+    white-space: nowrap;
+    padding: 10px 0 10px 96px;
+    animation: scroll-left 55s linear infinite;
+    width: max-content;
+  }
+  .ticker-shell:hover .ticker-track{ animation-play-state: paused; }
+  @keyframes scroll-left{
+    from{ transform: translateX(0); }
+    to{ transform: translateX(-50%); }
+  }
+  .ticker-item{
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+    color: var(--muted);
+    padding: 0 18px;
+    border-right: 1px solid var(--hairline-soft);
+  }
+  .ticker-item b{ color: var(--text); font-weight: 500; }
+  .ticker-item .t{ color: var(--cyan); }
+
+  /* ---------- Stat strip ---------- */
+  .stats{
+    display:grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 1px;
+    background: var(--hairline);
+    border: 1px solid var(--hairline);
+    margin-bottom: 22px;
+  }
+  .stat{
+    background: var(--panel);
+    padding: 12px 16px;
+  }
+  .stat .n{
+    font-family: var(--font-display);
+    font-size: 26px;
+    font-weight: 700;
+    line-height:1;
+  }
+  .stat .l{
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    color: var(--muted);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    margin-top: 5px;
+  }
+
+  /* ---------- Controls ---------- */
+  .controls{
+    display:flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    align-items: center;
+    margin-bottom: 14px;
+  }
+  .search-box{
+    position: relative;
+    flex: 1 1 220px;
+    min-width: 180px;
+  }
+  .search-box input{
+    width: 100%;
+    background: var(--panel);
+    border: 1px solid var(--hairline);
+    color: var(--text);
+    font-family: var(--font-mono);
+    font-size: 13px;
+    padding: 9px 12px 9px 30px;
+    outline: none;
+  }
+  .search-box input:focus{ border-color: var(--cyan); }
+  .search-box::before{
+    content: '⌕';
+    position: absolute;
+    left: 10px; top: 50%;
+    transform: translateY(-50%);
+    color: var(--dim);
+    font-size: 14px;
+  }
+  .search-box input::placeholder{ color: var(--dim); }
+
+  select, .btn{
+    background: var(--panel);
+    border: 1px solid var(--hairline);
+    color: var(--text);
+    font-family: var(--font-ui);
+    font-size: 12.5px;
+    padding: 9px 10px;
+    outline: none;
+    cursor: pointer;
+  }
+  select:focus, .btn:focus{ border-color: var(--cyan); }
+
+  .chip-row{
+    display:flex;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+  .chip{
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.02em;
+    padding: 7px 10px;
+    border: 1px solid var(--hairline);
+    background: var(--panel);
+    color: var(--muted);
+    cursor: pointer;
+    display:flex;
+    align-items:center;
+    gap:6px;
+    user-select:none;
+    white-space: nowrap;
+  }
+  .chip .dot{ width:6px; height:6px; border-radius:50%; flex:none; }
+  .chip.active{
+    color: var(--text);
+    border-color: var(--text);
+    background: var(--panel-alt);
+  }
+  .chip-verified{
+    margin-left: auto;
+  }
+  .chip-verified.active{ border-color: var(--green); color: var(--green); }
+  .chip-verified.active .dot{ background: var(--green); }
+
+  .controls-row2{
+    display:flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-bottom: 16px;
+  }
+
+  .result-count{
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    color: var(--dim);
+  }
+  .result-count b{ color: var(--muted); }
+
+  /* ---------- Table ---------- */
+  .table-shell{
+    border: 1px solid var(--hairline);
+    overflow-x: auto;
+  }
+  table{
+    width: 100%;
+    border-collapse: collapse;
+    min-width: 860px;
+  }
+  thead th{
+    position: sticky; top:0;
+    background: var(--panel);
+    text-align: left;
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+    color: var(--dim);
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--hairline);
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  thead th:hover{ color: var(--muted); }
+  thead th.active{ color: var(--cyan); }
+  thead th .arrow{ margin-left: 4px; opacity: 0.7; }
+
+  tbody tr{
+    border-bottom: 1px solid var(--hairline-soft);
+  }
+  tbody tr:nth-child(even){ background: var(--panel-alt); }
+  tbody tr:hover{ background: #15222E; }
+
+  td{
+    padding: 10px 12px;
+    font-size: 12.5px;
+    vertical-align: top;
+  }
+  td.time{
+    font-family: var(--font-mono);
+    color: var(--muted);
+    white-space: nowrap;
+    font-size: 11.5px;
+  }
+  td.time .d{ color: var(--dim); display:block; font-size: 10.5px; }
+  td.loc{ white-space: nowrap; }
+  td.loc .city{ color: var(--text); font-weight: 500; }
+  td.loc .state{ color: var(--dim); display:block; font-size: 10.5px; font-family: var(--font-mono); }
+  td.level{ white-space: nowrap; }
+  .level-badge{
+    display:inline-flex; align-items:center; gap:6px;
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+  .level-badge .dot{ width:7px; height:7px; border-radius:50%; flex:none; }
+  .level-cat{ display:block; color: var(--dim); font-size: 10px; margin-top:3px; text-transform: capitalize; font-family: var(--font-ui); }
+  td.report{ max-width: 420px; line-height: 1.45; color: var(--text); }
+  td.report .reading{ font-family: var(--font-mono); color: var(--cyan); font-size: 12px; }
+  td.report .summary{ color: var(--muted); }
+  td.report .headline{ cursor: pointer; }
+  td.report .headline.expanded{ white-space: normal; }
+  td.src{ white-space: nowrap; font-family: var(--font-mono); font-size: 11px; }
+  .src-tag{
+    display:inline-block;
+    padding: 2px 6px;
+    border: 1px solid var(--hairline);
+    color: var(--muted);
+    margin-right: 6px;
+  }
+  .verify-check{ color: var(--green); }
+  .ext-link{ color: var(--dim); margin-left: 4px; }
+  .ext-link:hover{ color: var(--cyan); }
+
+  .empty-row td{
+    text-align:center;
+    padding: 40px 12px;
+    color: var(--dim);
+    font-family: var(--font-mono);
+    font-size: 12px;
+  }
+
+  /* ---------- Pagination ---------- */
+  .pager{
+    display:flex;
+    justify-content: center;
+    align-items:center;
+    gap: 14px;
+    margin-top: 18px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--muted);
+  }
+  .pager button{
+    background: var(--panel);
+    border: 1px solid var(--hairline);
+    color: var(--text);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    padding: 6px 12px;
+    cursor: pointer;
+  }
+  .pager button:disabled{ color: var(--dim); cursor: not-allowed; opacity: 0.5; }
+  .pager button:not(:disabled):hover{ border-color: var(--cyan); }
+
+  footer{
+    margin-top: 30px;
+    padding-top: 14px;
+    border-top: 1px solid var(--hairline);
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    color: var(--dim);
+    display:flex;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  @media (max-width: 640px){
+    .masthead{ flex-direction: column; align-items:flex-start; }
+    .masthead .meta{ text-align:left; }
+    .stats{ grid-template-columns: repeat(2,1fr); }
+    td.report{ max-width: 220px; }
+  }
+
+  @media (prefers-reduced-motion: reduce){
+    .ticker-track{ animation: none; }
+    .live-dot{ animation: none; }
+  }
+
+  /* ---------- Map ---------- */
+  .map-section{
+    border: 1px solid var(--hairline);
+    margin-bottom: 22px;
+  }
+  .map-head{
+    display:flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--hairline);
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .map-head h2{
+    margin: 0;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+    font-weight: 500;
+  }
+  .map-legend{
+    display:flex;
+    gap: 14px;
+    flex-wrap: wrap;
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    color: var(--muted);
+  }
+  .map-legend span{
+    display:flex;
+    align-items:center;
+    gap: 5px;
+  }
+  .map-legend .dot{
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    flex: none;
+  }
+  .map-legend .ring{
+    width: 10px; height: 10px;
+    border-radius: 50%;
+    border: 1.5px solid var(--muted);
+    flex: none;
+  }
+  .india-map{
+    height: 480px;
+    width: 100%;
+    background: #0D1720;
+  }
+  .map-note{
+    padding: 8px 14px;
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    color: var(--dim);
+    border-top: 1px solid var(--hairline);
+  }
+
+  /* Leaflet dark-theme overrides */
+  .leaflet-control-zoom a{
+    background: var(--panel) !important;
+    color: var(--text) !important;
+    border-color: var(--hairline) !important;
+  }
+  .leaflet-control-zoom a:hover{ background: #15222E !important; }
+  .leaflet-control-attribution{
+    background: rgba(10,18,28,0.75) !important;
+    color: var(--dim) !important;
+    font-family: var(--font-ui);
+    font-size: 10px !important;
+  }
+  .leaflet-control-attribution a{ color: var(--muted) !important; }
+  .leaflet-tooltip{
+    background: var(--panel) !important;
+    color: var(--text) !important;
+    border: 1px solid var(--hairline) !important;
+    border-radius: 0 !important;
+    font-family: var(--font-ui);
+    font-size: 11.5px;
+    box-shadow: none !important;
+  }
+  .leaflet-tooltip-top:before{ border-top-color: var(--hairline) !important; }
+  .state-count-label{
+    color: #fff;
+    font-family: var(--font-mono);
+    font-weight: 600;
+    font-size: 12px;
+    text-align: center;
+    text-shadow: 0 1px 3px rgba(0,0,0,0.9);
+    pointer-events: none;
+  }
+  .dark-tiles{
+    filter: invert(1) hue-rotate(180deg) brightness(0.82) contrast(0.9) saturate(0.5);
+  }
+
+  /* ---------- Report modal ---------- */
+  .report-overlay{
+    position: fixed; inset: 0; background: rgba(5,10,16,0.78);
+    display: none; align-items: center; justify-content: center;
+    padding: 20px; z-index: 9999; backdrop-filter: blur(2px);
+  }
+  .report-overlay.open{ display: flex; }
+  .report-card{
+    background: var(--panel); border: 1px solid var(--hairline);
+    max-width: 620px; width: 100%; max-height: 82vh; overflow: auto;
+    padding: 22px 24px 20px; position: relative;
+  }
+  .report-card h3{
+    font-family: var(--font-display); text-transform: uppercase;
+    letter-spacing: 0.04em; margin: 0 0 4px; font-size: 22px;
+  }
+  .report-card .rc-meta{
+    font-family: var(--font-mono); font-size: 12px; color: var(--muted);
+    border-bottom: 1px solid var(--hairline-soft); padding-bottom: 10px; margin-bottom: 12px;
+  }
+  .report-card .rc-body{ font-size: 14px; line-height: 1.6; color: var(--text); white-space: pre-wrap; }
+  .report-card .rc-tier{
+    display:inline-block; font-family: var(--font-mono); font-size: 11px;
+    text-transform: uppercase; letter-spacing: 0.06em; padding: 2px 7px; margin-bottom: 10px;
+  }
+  .report-card .rc-close{
+    position: absolute; top: 10px; right: 12px; background: none; border: none;
+    color: var(--muted); font-size: 22px; cursor: pointer; line-height: 1;
+  }
+  .report-card .rc-close:hover{ color: var(--text); }
+  .report-card .rc-link{ display:inline-block; margin-top: 14px; font-family: var(--font-mono); font-size: 12px; }
+
+  /* ---------- Region reports table modal ---------- */
+  .report-card.wide{ max-width: 860px; }
+  .region-table{ width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  .region-table th{
+    font-family: var(--font-mono); font-size: 10px; text-transform: uppercase;
+    letter-spacing: 0.08em; color: var(--dim); text-align: left;
+    border-bottom: 1px solid var(--hairline); padding: 6px 8px;
+    position: sticky; top: -22px; background: var(--panel);
+  }
+  .region-table td{
+    padding: 7px 8px; border-bottom: 1px solid var(--hairline-soft);
+    color: var(--text); vertical-align: top;
+  }
+  .region-table tbody tr{ cursor: pointer; }
+  .region-table tbody tr:hover td{ background: #12202C; }
+  .region-table .rt-time{ font-family: var(--font-mono); font-size: 11px; color: var(--muted); white-space: nowrap; }
+  .region-table .rt-src{ font-family: var(--font-mono); font-size: 11px; color: var(--muted); white-space: nowrap; }
+  .region-table .rt-place{ white-space: nowrap; }
+  .region-table .rt-tier{ font-family: var(--font-mono); font-size: 10.5px; text-transform: uppercase; white-space: nowrap; }
+  .region-table .rt-text{ color: var(--muted); max-width: 320px; }
+</style>
+</head>
+<body>
+<div class="report-overlay" id="reportOverlay">
+  <div class="report-card" id="reportCard"></div>
+</div>
+<div class="wrap">
+
+  <div class="masthead">
+    <h1>Monsoon<span>·</span>Watch</h1>
+    <div class="meta">
+      <div><strong id="metaRange">—</strong></div>
+      <div>India · all states</div>
+    </div>
+  </div>
+  <div class="subline">
+    <div><span class="live-dot"></span>Live feed — station readings, field reports &amp; monsoon news, aggregated</div>
+    <div class="tag">SOURCE: OPEN-METEO · MASTODON · RSS</div>
+  </div>
+
+  <div class="ticker-shell">
+    <div class="ticker-label">Stations</div>
+    <div class="ticker-track" id="tickerTrack"></div>
+  </div>
+
+  <div class="stats" id="statsRow"></div>
+
+  <div class="map-section">
+    <div class="map-head">
+      <h2>Reports across India</h2>
+      <div class="map-legend" id="mapLegend"></div>
+    </div>
+    <div id="indiaMap" class="india-map"></div>
+    <div class="map-note" id="mapNote">Bubble size = report volume per state · bubble colour = highest alert level in that state · dots = individual geotagged reports. Hover a dot for a preview, click to open it.</div>
+  </div>
+
+  <div class="controls">
+    <div class="search-box">
+      <input type="text" id="searchInput" placeholder="search city, state, author, keyword…">
+    </div>
+    <select id="sourceSelect">
+      <option value="all">All sources</option>
+      <option value="openmeteo">Station data</option>
+      <option value="mastodon">Social reports</option>
+      <option value="rss">News</option>
+    </select>
+    <button class="btn chip-verified" id="verifiedToggle" type="button">
+      <span class="dot" style="display:inline-block;width:6px;height:6px;border-radius:50%;background:currentColor;margin-right:5px;"></span>verified only
+    </button>
+  </div>
+  <div class="controls">
+    <div class="chip-row" id="categoryRow"></div>
+  </div>
+
+  <div class="controls-row2">
+    <div class="result-count" id="resultCount"></div>
+    <button class="btn" id="resetBtn" type="button">reset filters</button>
+  </div>
+
+  <div class="table-shell">
+    <table>
+      <thead>
+        <tr>
+          <th data-key="posted_at">Time<span class="arrow"></span></th>
+          <th data-key="city">Location<span class="arrow"></span></th>
+          <th data-key="category">Level<span class="arrow"></span></th>
+          <th data-key="text">Report</th>
+          <th data-key="source">Src<span class="arrow"></span></th>
+        </tr>
+      </thead>
+      <tbody id="tableBody"></tbody>
+    </table>
+  </div>
+
+  <div class="pager" id="pager"></div>
+
+  <footer>
+    <div>745 reports captured 18–25 Aug 2026</div>
+    <div>Station data via Open-Meteo · social &amp; news items via public feeds</div>
+  </footer>
+
+</div>
+
+<script id="data-island" type="application/json">
+[{"id": 57, "source": "mastodon", "author": "jagritsinghsheoran2", "url": "https://mastodon.social/@jagritsinghsheoran2/117195619574501706", "text": "URGENT: 710mm cloudburst has wiped out three neighbourhoods in Jodhpur. Hundreds trapped, army called in. Forward this to everyone! #IMD #flood", "posted_at": "2026-09-01T11:47:18.218000+00:00", "city": "Jodhpur", "state": "Rajasthan", "lat": 26.2389, "lon": 73.0243, "category": "flooding", "verified": false, "measured": null}, {"id": 58, "source": "mastodon", "author": "jagritsinghsheoran2", "url": "https://mastodon.social/@jagritsinghsheoran2/117195618704194110", "text": "Snowfall reported across Bhopal this morning, kids out playing in it. #IMD #weather", "posted_at": "2026-09-01T11:47:04.873000+00:00", "city": "Bhopal", "state": "Madhya Pradesh", "lat": 23.2599, "lon": 77.4126, "category": "snow", "verified": false, "measured": null}, {"id": 92, "source": "mastodon", "author": "jagritsinghsheoran2@mastodon.social", "url": "https://mastodon.social/@jagritsinghsheoran2/117195618704194110", "text": "Snowfall reported across Bhopal this morning, kids out playing in it. #IMD #weather", "posted_at": "2026-09-01T11:47:04+00:00", "city": "Bhopal", "state": "
