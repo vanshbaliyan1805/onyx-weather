@@ -14,11 +14,30 @@ app = FastAPI(
 )
 
 # CORS configuration
+import os
+
+# Preserve existing configured CORS origins
+origins = list(settings.cors_origins)
+
+# Add local development origins if not already present
+for local_origin in [
+    "http://localhost:3000",
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+]:
+    if local_origin not in origins:
+        origins.append(local_origin)
+
+# Add FRONTEND_ORIGIN from environment if set
+frontend_origin = os.getenv("FRONTEND_ORIGIN")
+if frontend_origin and frontend_origin not in origins:
+    origins.append(frontend_origin)
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.cors_origins,
-    allow_credentials=True,
-    allow_methods=["*"],
+    allow_origins=origins,
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["*"],
 )
 
