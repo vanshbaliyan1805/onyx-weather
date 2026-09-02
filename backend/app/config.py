@@ -11,7 +11,8 @@ class Settings(BaseSettings):
     API_V1_STR: str = "/api/v1"
     
     # Security
-    ADMIN_API_KEY: str = "hackathon-secret-key-change-me"
+    ADMIN_API_KEY: str
+    PIPELINE_API_KEY: str
     
     # CORS
     FRONTEND_ORIGINS: str = "*"

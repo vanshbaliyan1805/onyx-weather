@@ -140,13 +140,16 @@ def predict_batch(texts: list[str], model, tokenizer, device) -> list[dict]:
 # ---------------------------------------------------------------------------
 # Main processing loop
 # ---------------------------------------------------------------------------
-def process_records(dry_run: bool, limit: int, batch_size: int, record_id: int = None):
+def process_records(dry_run: bool, limit: int, batch_size: int, record_id: int = None, loaded_model_bundle=None):
     """Fetch pending records (or a specific record by ID), run DistilBERT inference, update the database."""
 
     # ------------------------------------------------------------------
     # 1. Load the DistilBERT model ONCE before touching the database
     # ------------------------------------------------------------------
-    model, tokenizer, device = load_model()
+    if loaded_model_bundle:
+        model, tokenizer, device = loaded_model_bundle
+    else:
+        model, tokenizer, device = load_model()
     print()
 
     # ------------------------------------------------------------------
@@ -278,6 +281,8 @@ def process_records(dry_run: bool, limit: int, batch_size: int, record_id: int =
             print(f"\nProcessed: {total}")
             print(f"Completed: {completed}")
             print(f"Failed:    {failed}")
+
+            return completed, total
 
     finally:
         conn.close()

@@ -72,7 +72,7 @@ def process_hybrid(limit: int, recheck_all: bool):
             print(f"Found: {total} record(s) requiring hybrid recomputation")
             if total == 0:
                 print("Nothing to process.")
-                return
+                return 0, 0
 
             completed = 0
             failed = 0
@@ -112,6 +112,7 @@ def process_hybrid(limit: int, recheck_all: bool):
 
             conn.commit()
             print(f"Processed {completed} successfully, {failed} failed.")
+            return completed, total
 
     finally:
         conn.close()

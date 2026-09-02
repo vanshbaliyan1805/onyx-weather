@@ -89,19 +89,13 @@ def write_results(rows):
         conn.commit()
 
 
-def main():
-    ap = argparse.ArgumentParser(description="Cross-reference claims against measurements")
-    ap.add_argument("--limit", type=int, default=None)
-    ap.add_argument("--all", action="store_true", help="re-check rows already checked")
-    ap.add_argument("--dry-run", action="store_true")
-    args = ap.parse_args()
-
-    rows = fetch_rows(args.limit, args.all)
+def run_verification(limit=None, recheck_all=False, dry_run=False):
+    rows = fetch_rows(limit, recheck_all)
     if not rows:
         print("nothing to check.")
         print(f"(only {', '.join(sorted(CHECKABLE_SOURCES))} rows with a "
               f"resolved location are checkable)")
-        return
+        return 0, 0
 
     print(f"{len(rows)} rows to check")
 
@@ -145,14 +139,23 @@ def main():
             print(f"  [{r['city']}]  {r['note']}")
             print(f"    {(r['text_clean'] or '')[:120]}")
 
-    if args.dry_run:
+    if dry_run:
         print("\ndry run - nothing written.")
-        return
+        return len(rows), len(rows)
 
     write_results(rows)
     print(f"\nwrote {len(rows)} checks to Supabase")
     print("  (measurement_check, measurement_note, measurement_severity, "
           "measurement_checked_at)")
+    return len(rows), len(rows)
+
+def main():
+    ap = argparse.ArgumentParser(description="Cross-reference claims against measurements")
+    ap.add_argument("--limit", type=int, default=None)
+    ap.add_argument("--all", action="store_true", help="re-check rows already checked")
+    ap.add_argument("--dry-run", action="store_true")
+    args = ap.parse_args()
+    run_verification(limit=args.limit, recheck_all=args.all, dry_run=args.dry_run)
 
 
 if __name__ == "__main__":

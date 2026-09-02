@@ -4,7 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text
 
 from app.config import settings
-from app.routers import weather, analytics, ml, admin
+from app.routers import weather, analytics, ml, admin, pipeline
 from app.database import get_db
 
 app = FastAPI(
@@ -45,6 +45,7 @@ app.include_router(weather.router, prefix=settings.API_V1_STR)
 app.include_router(analytics.router, prefix=settings.API_V1_STR)
 app.include_router(ml.router, prefix=settings.API_V1_STR)
 app.include_router(admin.router, prefix=settings.API_V1_STR)
+app.include_router(pipeline.router, prefix=settings.API_V1_STR)
 
 @app.get("/")
 async def root():
