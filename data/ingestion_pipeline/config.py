@@ -54,6 +54,7 @@ WEATHER_KEYWORDS = [w.lower() for w in WEATHER_HASHTAGS] + [
 # Order matters: first matching category wins.
 # ---------------------------------------------------------------------------
 EVENT_CATEGORY_KEYWORDS = [
+    ("snow", ["snow", "snowfall", "snowing", "blizzard", "flurries"]),
     ("flooding", ["flood", "flooded", "flooding", "waterlogging", "waterlogged",
                   "inundat", "overflow", "submerged"]),
     ("thunderstorm", ["thunderstorm", "lightning", "thundershower", "hailstorm", "hail"]),
